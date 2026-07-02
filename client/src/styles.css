@@ -578,6 +578,223 @@ label {
   background: #fbfaf7;
 }
 
+.itin-details-body {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.itin-details-main {
+  flex: 2 1 0;
+  min-width: 0;
+}
+
+/* Item images */
+
+.itin-images {
+  flex: 1 1 0;
+  max-width: 33%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding-top: 0.75rem;
+}
+
+.img-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.img-thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 7px;
+}
+
+.img-thumb:hover {
+  border-color: var(--primary);
+}
+
+/* Stacked-photos effect when there is more than one image */
+.img-thumb.stacked {
+  margin-bottom: 8px;
+  margin-right: 8px;
+  box-shadow:
+    4px 4px 0 -1px var(--card),
+    4px 4px 0 0 var(--line),
+    8px 8px 0 -2px var(--card),
+    8px 8px 0 0 var(--line);
+}
+
+.img-count {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(34, 48, 60, 0.75);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+
+.img-loading {
+  display: block;
+  padding: 2rem 0;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 0.9rem;
+}
+
+/* Image dropzone */
+
+.dropzone {
+  width: 100%;
+  border: 2px dashed var(--ink-faint);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 1.2rem 1rem;
+  text-align: center;
+  cursor: pointer;
+  color: var(--ink-soft);
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.dropzone:hover,
+.dropzone.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.dropzone-text {
+  margin: 0.2rem 0;
+  font-size: 0.92rem;
+}
+
+.dropzone .btn {
+  margin-top: 0.5rem;
+}
+
+.dropzone-large {
+  width: min(480px, 82vw);
+  padding: 3.5rem 1.5rem;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+/* Image carousel modal */
+
+.carousel-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(16, 24, 31, 0.82);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.carousel-close {
+  position: absolute;
+  top: 0.9rem;
+  right: 1.1rem;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.4rem;
+}
+
+.carousel-close:hover {
+  color: #fff;
+}
+
+.carousel-body {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  max-width: 100%;
+}
+
+.carousel-nav {
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: #fff;
+  font-size: 1.9rem;
+  line-height: 1;
+  border-radius: 50%;
+  width: 2.6rem;
+  height: 2.6rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.carousel-nav:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.carousel-nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.carousel-slide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: min(480px, 70vw);
+  min-height: 240px;
+}
+
+.carousel-figure {
+  position: relative;
+  margin: 0;
+}
+
+.carousel-figure img {
+  display: block;
+  max-width: min(900px, 84vw);
+  max-height: 72vh;
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
+.carousel-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(16, 24, 31, 0.55);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.carousel-delete:hover {
+  background: rgba(16, 24, 31, 0.8);
+  color: #ff8a75;
+}
+
+.carousel-loading {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.carousel-counter {
+  margin: 0.9rem 0 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
 /* Rendered markdown */
 
 .markdown {
@@ -668,5 +885,25 @@ label {
   .itin-row-line {
     grid-template-columns: 6.5rem 1fr auto;
     gap: 0.6rem;
+  }
+
+  /* Images drop below the details text on small screens */
+  .itin-details-body {
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .itin-images {
+    max-width: 100%;
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .img-thumb img {
+    max-height: 180px;
+  }
+
+  .carousel-slide {
+    min-width: 0;
   }
 }

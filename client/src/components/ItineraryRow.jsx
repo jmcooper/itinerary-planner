@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { stripCodeFromHeadings } from '../lib/parse.js'
+import ItemImages from './ItemImages.jsx'
 
-export default function ItineraryRow({ item, onSave }) {
+export default function ItineraryRow({ tripId, item, onSave }) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
 
@@ -30,18 +31,25 @@ export default function ItineraryRow({ item, onSave }) {
               }}
             />
           ) : (
-            <>
-              {item.details ? (
-                <div className="markdown">
-                  <ReactMarkdown>{stripCodeFromHeadings(item.details)}</ReactMarkdown>
-                </div>
-              ) : (
-                <p className="muted">No details for this item yet.</p>
-              )}
-              <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(true)}>
-                Edit
-              </button>
-            </>
+            <div className="itin-details-body">
+              <div className="itin-details-main">
+                {item.details ? (
+                  <div className="markdown">
+                    <ReactMarkdown>{stripCodeFromHeadings(item.details)}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="muted">No details for this item yet.</p>
+                )}
+                <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(true)}>
+                  Edit
+                </button>
+              </div>
+              <ItemImages
+                tripId={tripId}
+                imageIds={item.images ?? []}
+                onChangeIds={(images) => onSave({ ...item, images })}
+              />
+            </div>
           )}
         </div>
       )}

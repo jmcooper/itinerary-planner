@@ -105,6 +105,59 @@ test('DELETE /api/trips/:id removes the trip', async () => {
   assert.equal(res.status, 404)
 })
 
+const TINY_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+test('image upload / fetch / delete lifecycle', async () => {
+  const created = await request(app).post('/api/trips').send({ name: 'Photo Trip' })
+  const id = created.body.id
+
+  const posted = await request(app).post(`/api/trips/${id}/images`).send({ dataUri: TINY_PNG })
+  assert.equal(posted.status, 201)
+  assert.match(posted.body.id, /^img_[a-f0-9]+$/)
+
+  const fetched = await request(app).get(`/api/trips/${id}/images/${posted.body.id}`)
+  assert.equal(fetched.status, 200)
+  assert.equal(fetched.body.dataUri, TINY_PNG)
+
+  const deleted = await request(app).delete(`/api/trips/${id}/images/${posted.body.id}`)
+  assert.equal(deleted.status, 204)
+  const gone = await request(app).get(`/api/trips/${id}/images/${posted.body.id}`)
+  assert.equal(gone.status, 404)
+})
+
+test('image upload rejects non-image data URIs', async () => {
+  const created = await request(app).post('/api/trips').send({ name: 'Bad Image Trip' })
+  for (const dataUri of ['not a data uri', 'data:text/html;base64,PGI+', '', null]) {
+    const res = await request(app).post(`/api/trips/${created.body.id}/images`).send({ dataUri })
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(dataUri)}`)
+  }
+})
+
+test('image routes 404 for unknown trip or image', async () => {
+  const created = await request(app).post('/api/trips').send({ name: 'Missing Image Trip' })
+  assert.equal((await request(app).post('/api/trips/nope/images').send({ dataUri: TINY_PNG })).status, 404)
+  assert.equal((await request(app).get(`/api/trips/${created.body.id}/images/img_ffffff`)).status, 404)
+  assert.equal((await request(app).delete(`/api/trips/${created.body.id}/images/img_ffffff`)).status, 404)
+})
+
+test('images file does not leak into the trips list', async () => {
+  const created = await request(app).post('/api/trips').send({ name: 'List Clean Trip' })
+  await request(app).post(`/api/trips/${created.body.id}/images`).send({ dataUri: TINY_PNG })
+  const list = await request(app).get('/api/trips')
+  assert.ok(list.body.every((t) => t.name && t.id))
+  assert.ok(!list.body.some((t) => t.id === undefined))
+})
+
+test('deleting a trip also deletes its images', async () => {
+  const created = await request(app).post('/api/trips').send({ name: 'Cleanup Trip' })
+  const id = created.body.id
+  const posted = await request(app).post(`/api/trips/${id}/images`).send({ dataUri: TINY_PNG })
+  await request(app).delete(`/api/trips/${id}`)
+  const res = await request(app).get(`/api/trips/${id}/images/${posted.body.id}`)
+  assert.equal(res.status, 404)
+})
+
 test('trip ids are url-safe slugs derived from the name', async () => {
   const created = await request(app).post('/api/trips').send({ name: 'Grand Cañón & Back!' })
   assert.match(created.body.id, /^[a-z0-9-]+$/)

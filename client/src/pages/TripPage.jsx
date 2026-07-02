@@ -103,6 +103,7 @@ export default function TripPage() {
             {selectedDate ? (
               <DayView
                 key={selectedDate}
+                tripId={trip.id}
                 date={selectedDate}
                 dayIndex={dates.indexOf(selectedDate)}
                 day={trip.days?.[selectedDate] ?? {}}

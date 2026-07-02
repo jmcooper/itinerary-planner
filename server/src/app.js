@@ -7,7 +7,7 @@ import { createStorage } from './storage.js'
 export function createApp(dataDir) {
   const app = express()
   const storage = createStorage(dataDir)
-  app.use(express.json({ limit: '2mb' }))
+  app.use(express.json({ limit: '15mb' }))
 
   const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next)
 
@@ -91,6 +91,54 @@ export function createApp(dataDir) {
     wrap(async (req, res) => {
       const removed = await storage.deleteTrip(req.params.id)
       if (!removed) return res.status(404).json({ error: 'trip not found' })
+      res.status(204).end()
+    })
+  )
+
+  // Images are stored per trip in a separate <id>.images.json file so trip
+  // fetches stay small; clients load image data on demand by id.
+  const DATA_URI_RE = /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]+=*$/i
+  const MAX_DATA_URI_CHARS = 14_000_000 // ~10MB of image data
+
+  app.post(
+    '/api/trips/:id/images',
+    wrap(async (req, res) => {
+      const trip = await storage.readTrip(req.params.id)
+      if (!trip) return res.status(404).json({ error: 'trip not found' })
+      const dataUri = req.body?.dataUri
+      if (typeof dataUri !== 'string' || !DATA_URI_RE.test(dataUri))
+        return res.status(400).json({ error: 'dataUri must be a base64 image data URI' })
+      if (dataUri.length > MAX_DATA_URI_CHARS)
+        return res.status(400).json({ error: 'image is too large (10MB max)' })
+      const images = await storage.readImages(trip.id)
+      const id = storage.newImageId()
+      images[id] = dataUri
+      await storage.writeImages(trip.id, images)
+      res.status(201).json({ id })
+    })
+  )
+
+  app.get(
+    '/api/trips/:id/images/:imageId',
+    wrap(async (req, res) => {
+      const trip = await storage.readTrip(req.params.id)
+      if (!trip) return res.status(404).json({ error: 'trip not found' })
+      const images = await storage.readImages(trip.id)
+      const dataUri = images[req.params.imageId]
+      if (!dataUri) return res.status(404).json({ error: 'image not found' })
+      res.json({ id: req.params.imageId, dataUri })
+    })
+  )
+
+  app.delete(
+    '/api/trips/:id/images/:imageId',
+    wrap(async (req, res) => {
+      const trip = await storage.readTrip(req.params.id)
+      if (!trip) return res.status(404).json({ error: 'trip not found' })
+      const images = await storage.readImages(trip.id)
+      if (!(req.params.imageId in images)) return res.status(404).json({ error: 'image not found' })
+      delete images[req.params.imageId]
+      await storage.writeImages(trip.id, images)
       res.status(204).end()
     })
   )

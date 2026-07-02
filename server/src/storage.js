@@ -32,7 +32,9 @@ export function createStorage(dataDir) {
 
   async function listTrips() {
     await ensureDir()
-    const files = (await readdir(dataDir)).filter((f) => f.endsWith('.json'))
+    const files = (await readdir(dataDir)).filter(
+      (f) => f.endsWith('.json') && !f.endsWith('.images.json')
+    )
     const trips = []
     for (const file of files) {
       try {
@@ -49,7 +51,33 @@ export function createStorage(dataDir) {
     const trip = await readTrip(id)
     if (!trip) return false
     await rm(fileFor(id))
+    await rm(imagesFileFor(id), { force: true })
     return true
+  }
+
+  function imagesFileFor(id) {
+    return path.join(dataDir, `${id}.images.json`)
+  }
+
+  async function readImages(tripId) {
+    try {
+      return JSON.parse(await readFile(imagesFileFor(tripId), 'utf8'))
+    } catch (err) {
+      if (err.code === 'ENOENT') return {}
+      throw err
+    }
+  }
+
+  async function writeImages(tripId, images) {
+    await ensureDir()
+    const target = imagesFileFor(tripId)
+    const tmp = `${target}.${randomBytes(4).toString('hex')}.tmp`
+    await writeFile(tmp, JSON.stringify(images), 'utf8')
+    await rename(tmp, target)
+  }
+
+  function newImageId() {
+    return `img_${randomBytes(6).toString('hex')}`
   }
 
   function slugify(name) {
@@ -63,5 +91,5 @@ export function createStorage(dataDir) {
     return base ? `${base}-${suffix}` : suffix
   }
 
-  return { readTrip, writeTrip, listTrips, deleteTrip, slugify }
+  return { readTrip, writeTrip, listTrips, deleteTrip, slugify, readImages, writeImages, newImageId }
 }

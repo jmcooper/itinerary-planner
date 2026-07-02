@@ -16,4 +16,9 @@ export const api = {
   updateTrip: (id, patch) =>
     fetchJson(`/api/trips/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
   deleteTrip: (id) => fetchJson(`/api/trips/${id}`, { method: 'DELETE' }),
+  getImage: (tripId, imageId) => fetchJson(`/api/trips/${tripId}/images/${imageId}`),
+  uploadImage: (tripId, dataUri) =>
+    fetchJson(`/api/trips/${tripId}/images`, { method: 'POST', body: JSON.stringify({ dataUri }) }),
+  deleteImage: (tripId, imageId) =>
+    fetchJson(`/api/trips/${tripId}/images/${imageId}`, { method: 'DELETE' }),
 }
