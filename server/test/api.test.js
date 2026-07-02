@@ -74,6 +74,15 @@ test('PUT /api/trips/:id updates dates and days', async () => {
   assert.equal(fetched.body.days['2026-07-04'].items.length, 1)
 })
 
+test('PUT /api/trips/:id round-trips extra day fields like mapsUrl', async () => {
+  const created = await request(app).post('/api/trips').send({ name: 'Maps Trip' })
+  const id = created.body.id
+  const day = { items: [], mapsUrl: 'https://maps.app.goo.gl/abc123' }
+  await request(app).put(`/api/trips/${id}`).send({ days: { '2026-07-18': day } })
+  const res = await request(app).get(`/api/trips/${id}`)
+  assert.equal(res.body.days['2026-07-18'].mapsUrl, 'https://maps.app.goo.gl/abc123')
+})
+
 test('PUT /api/trips/:id preserves fields not in the payload', async () => {
   const created = await request(app).post('/api/trips').send({ name: 'Keep Me' })
   const id = created.body.id

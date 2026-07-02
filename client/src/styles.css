@@ -398,10 +398,50 @@ label {
   min-height: 300px;
 }
 
-.day-title {
-  margin: 0 0 1rem;
+.day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
   padding-bottom: 0.75rem;
   border-bottom: 2px solid var(--primary-soft);
+}
+
+.day-title {
+  margin: 0;
+}
+
+.maps-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.maps-link a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.maps-link-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.maps-link-form input {
+  width: min(320px, 100%);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.9rem;
+}
+
+.maps-link-error {
+  width: 100%;
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  text-align: right;
 }
 
 /* Date range form */

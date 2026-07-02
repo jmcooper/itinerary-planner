@@ -105,9 +105,14 @@ export default function TripPage() {
                 key={selectedDate}
                 date={selectedDate}
                 dayIndex={dates.indexOf(selectedDate)}
-                items={trip.days?.[selectedDate]?.items ?? []}
-                onSaveItems={(items) =>
-                  saveTrip({ days: { ...trip.days, [selectedDate]: { items } } })
+                day={trip.days?.[selectedDate] ?? {}}
+                onSaveDay={(patch) =>
+                  saveTrip({
+                    days: {
+                      ...trip.days,
+                      [selectedDate]: { ...(trip.days?.[selectedDate] ?? {}), ...patch },
+                    },
+                  })
                 }
               />
             ) : (
