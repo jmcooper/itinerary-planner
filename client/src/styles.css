@@ -424,6 +424,34 @@ label {
   font-weight: 600;
 }
 
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 0.3rem;
+  cursor: pointer;
+  color: var(--ink-faint);
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.btn-icon:hover {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.btn-icon-danger:hover {
+  color: var(--danger);
+  background: #f7e6e2;
+}
+
+.btn-icon:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
 .maps-link-form {
   display: flex;
   align-items: center;
