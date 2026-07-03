@@ -75,70 +75,55 @@ export default function HomePage() {
 
       {trips === null ? (
         <p className="empty-note">Loading trips…</p>
+      ) : trips.mine.length + trips.shared.length + trips.public.length === 0 ? (
+        <p className="empty-note">No trips yet — create your first itinerary above.</p>
       ) : (
         <>
-          {user && (
-            <TripSection
-              title="My Trips"
-              trips={trips.mine}
-              emptyNote="No trips yet — create your first itinerary above."
-              onDelete={handleDelete}
-            />
+          {user && trips.mine.length > 0 && (
+            <TripSection title="My Trips" trips={trips.mine} onDelete={handleDelete} />
           )}
-          {user && (
-            <TripSection
-              title="Trips Shared with Me"
-              trips={trips.shared}
-              emptyNote="No one has shared a trip with you yet."
-              withOwner
-            />
+          {user && trips.shared.length > 0 && (
+            <TripSection title="Trips Shared with Me" trips={trips.shared} withOwner />
           )}
-          <TripSection
-            title="Public Trips"
-            trips={trips.public}
-            emptyNote="No public trips yet."
-            withOwner
-          />
+          {trips.public.length > 0 && (
+            <TripSection title="Public Trips" trips={trips.public} withOwner />
+          )}
         </>
       )}
     </div>
   )
 }
 
-function TripSection({ title, trips, emptyNote, onDelete, withOwner }) {
+function TripSection({ title, trips, onDelete, withOwner }) {
   return (
     <section className="trip-section">
       <h2 className="trip-section-title">{title}</h2>
-      {trips.length === 0 ? (
-        <p className="empty-note">{emptyNote}</p>
-      ) : (
-        <ul className="trip-list">
-          {trips.map((trip) => (
-            <li key={trip.id} className="trip-card">
-              <Link to={`/trips/${trip.id}`} className="trip-card-link">
-                <span className="trip-card-name">{trip.name}</span>
-                <span className="trip-card-dates">
-                  {formatRange(trip.startDate, trip.endDate)}
-                  {withOwner && trip.ownerId && (
-                    <span className="trip-card-owner"> · by {trip.ownerId}</span>
-                  )}
-                </span>
-              </Link>
-              {onDelete && (
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-danger"
-                  onClick={() => onDelete(trip)}
-                  aria-label={`Delete ${trip.name}`}
-                  title="Delete trip"
-                >
-                  ✕
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="trip-list">
+        {trips.map((trip) => (
+          <li key={trip.id} className="trip-card">
+            <Link to={`/trips/${trip.id}`} className="trip-card-link">
+              <span className="trip-card-name">{trip.name}</span>
+              <span className="trip-card-dates">
+                {formatRange(trip.startDate, trip.endDate)}
+                {withOwner && trip.ownerId && (
+                  <span className="trip-card-owner"> · by {trip.ownerId}</span>
+                )}
+              </span>
+            </Link>
+            {onDelete && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-danger"
+                onClick={() => onDelete(trip)}
+                aria-label={`Delete ${trip.name}`}
+                title="Delete trip"
+              >
+                ✕
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
