@@ -62,6 +62,27 @@ Run the API with `PORT=3001 node server/src/index.js` (systemd, pm2, etc.). Trip
 lives in `server/data/*.json` — set `DATA_DIR` to relocate it; back it up by copying the
 directory.
 
+### Option C — Docker (production, via the webhost)
+
+Production runs behind the [webhost](https://git.cooperplanet.com) reverse proxy at
+https://travel.cooperplanet.com on the `10.42.10.0/24` subnet:
+
+- `ui` (`10.42.10.20`) — nginx serving the built client, proxying `/api` to the API
+  container ([client/Dockerfile](client/Dockerfile), [client/nginx.conf](client/nginx.conf))
+- `api` (`10.42.10.40`) — Express on `:3001`, internal only; trip data persisted to
+  `./data` on the host via a bind mount (`DATA_DIR=/data`)
+
+Deploy on the server:
+
+```sh
+docker compose up -d --build       # from this repo
+docker exec nginx nginx -s reload  # from the webhost repo, first deploy only
+```
+
+The webhost side (server block + routing-table entry) lives in the webhost repo:
+`nginx/servers/travel.cooperplanet.conf`. TLS is covered by the existing
+`*.cooperplanet.com` wildcard cert.
+
 ## Day import format
 
 CSV (`Time,Plan,Detail` header optional):

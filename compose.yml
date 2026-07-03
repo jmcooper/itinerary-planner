@@ -1,0 +1,26 @@
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.42.10.0/24
+
+services:
+  ui:
+    build: ./client
+    networks:
+      default:
+        ipv4_address: 10.42.10.20
+    depends_on:
+      - api
+    restart: always
+
+  api:
+    build: ./server
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    networks:
+      default:
+        ipv4_address: 10.42.10.40 # internal only — not proxied by the webhost
+    restart: always
