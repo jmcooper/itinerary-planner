@@ -9,7 +9,9 @@
     "test": "node --test"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
     "supertest": "^7.1.0"

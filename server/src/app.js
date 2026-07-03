@@ -1,35 +1,143 @@
 import express from 'express'
+import cookieParser from 'cookie-parser'
 import path from 'node:path'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createStorage } from './storage.js'
+import { createAuth, USERNAME_RE, MIN_PASSWORD_LENGTH } from './auth.js'
+
+// Legacy trips (created before accounts existed) have no ownerId; they are
+// treated as public and any signed-in user may edit or delete them.
+function canView(trip, username) {
+  if (!trip.ownerId) return true
+  if (trip.visibility === 'public') return true
+  if (!username) return false
+  return trip.ownerId === username || (trip.sharedWith ?? []).includes(username)
+}
+
+function canEdit(trip, username) {
+  if (!username) return false
+  if (!trip.ownerId) return true
+  return trip.ownerId === username || (trip.sharedWith ?? []).includes(username)
+}
+
+function isOwner(trip, username) {
+  if (!username) return false
+  return trip.ownerId ? trip.ownerId === username : true
+}
 
 export function createApp(dataDir) {
   const app = express()
   const storage = createStorage(dataDir)
+  const auth = createAuth(dataDir)
   app.use(express.json({ limit: '15mb' }))
+  app.use(cookieParser())
+  app.use(auth.authenticate)
 
   const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next)
+
+  // ---- Auth ----
+  // Responses only ever include the username; salt/hash never leave the storage layer.
+
+  function parseCredentials(body) {
+    const username = typeof body?.username === 'string' ? body.username.trim().toLowerCase() : ''
+    const password = typeof body?.password === 'string' ? body.password : ''
+    return { username, password }
+  }
+
+  app.post(
+    '/api/auth/register',
+    wrap(async (req, res) => {
+      const { username, password } = parseCredentials(req.body)
+      if (!USERNAME_RE.test(username))
+        return res.status(400).json({
+          error: 'username must be 3-30 characters: lowercase letters, digits, - or _',
+        })
+      if (password.length < MIN_PASSWORD_LENGTH)
+        return res
+          .status(400)
+          .json({ error: `password must be at least ${MIN_PASSWORD_LENGTH} characters` })
+      try {
+        await auth.createUser(username, password)
+      } catch (err) {
+        if (err.code === 'EEXIST')
+          return res.status(409).json({ error: 'that username is taken' })
+        throw err
+      }
+      auth.setTokenCookie(res, username)
+      res.status(201).json({ username })
+    })
+  )
+
+  app.post(
+    '/api/auth/login',
+    wrap(async (req, res) => {
+      const { username, password } = parseCredentials(req.body)
+      const user = await auth.readUser(username)
+      if (!user || !(await auth.verifyPassword(user, password)))
+        return res.status(401).json({ error: 'invalid username or password' })
+      auth.setTokenCookie(res, username)
+      res.json({ username })
+    })
+  )
+
+  app.post('/api/auth/logout', (req, res) => {
+    auth.clearTokenCookie(res)
+    res.status(204).end()
+  })
+
+  app.get('/api/auth/me', (req, res) => {
+    res.json({ username: req.username })
+  })
+
+  app.get(
+    '/api/users',
+    auth.requireAuth,
+    wrap(async (req, res) => {
+      res.json(await auth.listUsernames())
+    })
+  )
+
+  // ---- Trips ----
+
+  function summarize(trip) {
+    const { id, name, startDate, endDate, createdAt, updatedAt } = trip
+    return {
+      id,
+      name,
+      startDate,
+      endDate,
+      createdAt,
+      updatedAt,
+      ownerId: trip.ownerId ?? null,
+      visibility: trip.ownerId ? trip.visibility ?? 'private' : 'public',
+    }
+  }
 
   app.get(
     '/api/trips',
     wrap(async (req, res) => {
+      const username = req.username
       const trips = await storage.listTrips()
-      res.json(
-        trips.map(({ id, name, startDate, endDate, createdAt, updatedAt }) => ({
-          id,
-          name,
-          startDate,
-          endDate,
-          createdAt,
-          updatedAt,
-        }))
-      )
+      const mine = []
+      const shared = []
+      const publicTrips = []
+      for (const trip of trips) {
+        if (username && trip.ownerId === username) mine.push(trip)
+        else if (username && (trip.sharedWith ?? []).includes(username)) shared.push(trip)
+        else if (canView(trip, null)) publicTrips.push(trip)
+      }
+      res.json({
+        mine: mine.map(summarize),
+        shared: shared.map(summarize),
+        public: publicTrips.map(summarize),
+      })
     })
   )
 
   app.post(
     '/api/trips',
+    auth.requireAuth,
     wrap(async (req, res) => {
       const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
       if (!name) return res.status(400).json({ error: 'name is required' })
@@ -37,6 +145,9 @@ export function createApp(dataDir) {
       const trip = {
         id: storage.slugify(name),
         name,
+        ownerId: req.username,
+        visibility: 'private',
+        sharedWith: [],
         startDate: null,
         endDate: null,
         days: {},
@@ -44,25 +155,70 @@ export function createApp(dataDir) {
         updatedAt: now,
       }
       await storage.writeTrip(trip)
-      res.status(201).json(trip)
+      res.status(201).json(withPermissions(trip, req.username))
     })
   )
+
+  // Non-viewable trips 404 (not 403) so private trip ids are indistinguishable
+  // from missing ones.
+  async function loadViewableTrip(req, res) {
+    const trip = await storage.readTrip(req.params.id)
+    if (!trip || !canView(trip, req.username)) {
+      res.status(404).json({ error: 'trip not found' })
+      return null
+    }
+    return trip
+  }
+
+  function requireEditable(trip, req, res) {
+    if (canEdit(trip, req.username)) return true
+    if (!req.username) res.status(401).json({ error: 'authentication required' })
+    else res.status(403).json({ error: 'you do not have permission to change this trip' })
+    return false
+  }
+
+  function withPermissions(trip, username) {
+    return { ...trip, isOwner: isOwner(trip, username), canEdit: canEdit(trip, username) }
+  }
 
   app.get(
     '/api/trips/:id',
     wrap(async (req, res) => {
-      const trip = await storage.readTrip(req.params.id)
-      if (!trip) return res.status(404).json({ error: 'trip not found' })
-      res.json(trip)
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      res.json(withPermissions(trip, req.username))
     })
   )
 
   app.put(
     '/api/trips/:id',
     wrap(async (req, res) => {
-      const trip = await storage.readTrip(req.params.id)
-      if (!trip) return res.status(404).json({ error: 'trip not found' })
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      if (!requireEditable(trip, req, res)) return
       const body = req.body ?? {}
+
+      // Visibility and sharing are owner-only controls.
+      if ('visibility' in body || 'sharedWith' in body) {
+        if (!isOwner(trip, req.username))
+          return res.status(403).json({ error: 'only the owner can change sharing settings' })
+      }
+      if ('visibility' in body) {
+        if (body.visibility !== 'private' && body.visibility !== 'public')
+          return res.status(400).json({ error: 'visibility must be "private" or "public"' })
+        trip.visibility = body.visibility
+      }
+      if ('sharedWith' in body) {
+        if (!Array.isArray(body.sharedWith) || body.sharedWith.some((u) => typeof u !== 'string'))
+          return res.status(400).json({ error: 'sharedWith must be an array of usernames' })
+        const usernames = [...new Set(body.sharedWith)].filter((u) => u !== trip.ownerId)
+        for (const username of usernames) {
+          if (!(await auth.readUser(username)))
+            return res.status(400).json({ error: `unknown user: ${username}` })
+        }
+        trip.sharedWith = usernames
+      }
+
       if ('name' in body) {
         if (typeof body.name !== 'string' || !body.name.trim())
           return res.status(400).json({ error: 'name must be a non-empty string' })
@@ -82,29 +238,36 @@ export function createApp(dataDir) {
       }
       trip.updatedAt = new Date().toISOString()
       await storage.writeTrip(trip)
-      res.json(trip)
+      res.json(withPermissions(trip, req.username))
     })
   )
 
   app.delete(
     '/api/trips/:id',
     wrap(async (req, res) => {
-      const removed = await storage.deleteTrip(req.params.id)
-      if (!removed) return res.status(404).json({ error: 'trip not found' })
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      if (!req.username) return res.status(401).json({ error: 'authentication required' })
+      if (!isOwner(trip, req.username))
+        return res.status(403).json({ error: 'only the owner can delete this trip' })
+      await storage.deleteTrip(trip.id)
       res.status(204).end()
     })
   )
 
+  // ---- Images ----
   // Images are stored per trip in a separate <id>.images.json file so trip
   // fetches stay small; clients load image data on demand by id.
+  // Reading follows trip view permissions; writing follows edit permissions.
   const DATA_URI_RE = /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]+=*$/i
   const MAX_DATA_URI_CHARS = 14_000_000 // ~10MB of image data
 
   app.post(
     '/api/trips/:id/images',
     wrap(async (req, res) => {
-      const trip = await storage.readTrip(req.params.id)
-      if (!trip) return res.status(404).json({ error: 'trip not found' })
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      if (!requireEditable(trip, req, res)) return
       const dataUri = req.body?.dataUri
       if (typeof dataUri !== 'string' || !DATA_URI_RE.test(dataUri))
         return res.status(400).json({ error: 'dataUri must be a base64 image data URI' })
@@ -121,8 +284,8 @@ export function createApp(dataDir) {
   app.get(
     '/api/trips/:id/images/:imageId',
     wrap(async (req, res) => {
-      const trip = await storage.readTrip(req.params.id)
-      if (!trip) return res.status(404).json({ error: 'trip not found' })
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
       const images = await storage.readImages(trip.id)
       const dataUri = images[req.params.imageId]
       if (!dataUri) return res.status(404).json({ error: 'image not found' })
@@ -133,8 +296,9 @@ export function createApp(dataDir) {
   app.delete(
     '/api/trips/:id/images/:imageId',
     wrap(async (req, res) => {
-      const trip = await storage.readTrip(req.params.id)
-      if (!trip) return res.status(404).json({ error: 'trip not found' })
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      if (!requireEditable(trip, req, res)) return
       const images = await storage.readImages(trip.id)
       if (!(req.params.imageId in images)) return res.status(404).json({ error: 'image not found' })
       delete images[req.params.imageId]
