@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import { stripCodeFromHeadings } from '../lib/parse.js'
 import ItemImages from './ItemImages.jsx'
 
-export default function ItineraryRow({ tripId, item, onSave }) {
+export default function ItineraryRow({ tripId, item, canEdit, onSave }) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
 
@@ -40,13 +40,16 @@ export default function ItineraryRow({ tripId, item, onSave }) {
                 ) : (
                   <p className="muted">No details for this item yet.</p>
                 )}
-                <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(true)}>
-                  Edit
-                </button>
+                {canEdit && (
+                  <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(true)}>
+                    Edit
+                  </button>
+                )}
               </div>
               <ItemImages
                 tripId={tripId}
                 imageIds={item.images ?? []}
+                canEdit={canEdit}
                 onChangeIds={(images) => onSave({ ...item, images })}
               />
             </div>

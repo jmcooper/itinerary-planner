@@ -1,6 +1,7 @@
 async function fetchJson(url, options = {}) {
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     ...options,
   })
   if (res.status === 204) return null
@@ -10,6 +11,13 @@ async function fetchJson(url, options = {}) {
 }
 
 export const api = {
+  register: (username, password) =>
+    fetchJson('/api/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  login: (username, password) =>
+    fetchJson('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  logout: () => fetchJson('/api/auth/logout', { method: 'POST' }),
+  me: () => fetchJson('/api/auth/me'),
+  listUsers: () => fetchJson('/api/users'),
   listTrips: () => fetchJson('/api/trips'),
   createTrip: (name) => fetchJson('/api/trips', { method: 'POST', body: JSON.stringify({ name }) }),
   getTrip: (id) => fetchJson(`/api/trips/${id}`),

@@ -4,7 +4,7 @@ import { buildDayItems } from '../lib/parse.js'
 import ItineraryRow from './ItineraryRow.jsx'
 import { PencilIcon, TrashIcon } from './icons.jsx'
 
-export default function DayView({ tripId, date, dayIndex, day, onSaveDay }) {
+export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDay }) {
   const { weekday, label, year } = formatDay(date)
   const heading = `Day ${dayIndex + 1} — ${weekday}, ${label}, ${year}`
   const items = day.items ?? []
@@ -14,18 +14,26 @@ export default function DayView({ tripId, date, dayIndex, day, onSaveDay }) {
     <div className="day-view">
       <div className="day-header">
         <h2 className="day-title">{heading}</h2>
-        <MapsLink mapsUrl={day.mapsUrl ?? ''} onSave={(mapsUrl) => onSaveDay({ mapsUrl })} />
+        <MapsLink
+          mapsUrl={day.mapsUrl ?? ''}
+          canEdit={canEdit}
+          onSave={(mapsUrl) => onSaveDay({ mapsUrl })}
+        />
       </div>
       {items.length === 0 ? (
-        <DayImportForm onSave={onSaveItems} />
+        canEdit ? (
+          <DayImportForm onSave={onSaveItems} />
+        ) : (
+          <p className="empty-note">No itinerary for this day yet.</p>
+        )
       ) : (
-        <DayTable tripId={tripId} items={items} onSaveItems={onSaveItems} />
+        <DayTable tripId={tripId} items={items} canEdit={canEdit} onSaveItems={onSaveItems} />
       )}
     </div>
   )
 }
 
-function MapsLink({ mapsUrl, onSave }) {
+function MapsLink({ mapsUrl, canEdit, onSave }) {
   const [editing, setEditing] = useState(false)
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
@@ -82,28 +90,33 @@ function MapsLink({ mapsUrl, onSave }) {
         <a href={mapsUrl} target="_blank" rel="noopener noreferrer">
           Itinerary Map Link
         </a>
-        <button
-          type="button"
-          className="btn-icon"
-          onClick={startEditing}
-          title="Edit maps link"
-          aria-label="Edit maps link"
-        >
-          <PencilIcon />
-        </button>
-        <button
-          type="button"
-          className="btn-icon btn-icon-danger"
-          onClick={() => onSave('')}
-          title="Remove maps link"
-          aria-label="Remove maps link"
-        >
-          <TrashIcon />
-        </button>
+        {canEdit && (
+          <>
+            <button
+              type="button"
+              className="btn-icon"
+              onClick={startEditing}
+              title="Edit maps link"
+              aria-label="Edit maps link"
+            >
+              <PencilIcon />
+            </button>
+            <button
+              type="button"
+              className="btn-icon btn-icon-danger"
+              onClick={() => onSave('')}
+              title="Remove maps link"
+              aria-label="Remove maps link"
+            >
+              <TrashIcon />
+            </button>
+          </>
+        )}
       </div>
     )
   }
 
+  if (!canEdit) return null
   return (
     <button type="button" className="btn btn-ghost btn-small" onClick={startEditing}>
       Add Maps Link
@@ -179,7 +192,7 @@ function DayImportForm({ onSave }) {
   )
 }
 
-function DayTable({ tripId, items, onSaveItems }) {
+function DayTable({ tripId, items, canEdit, onSaveItems }) {
   const [error, setError] = useState('')
 
   async function saveItem(index, updated) {
@@ -202,14 +215,22 @@ function DayTable({ tripId, items, onSaveItems }) {
       {error && <p className="error">{error}</p>}
       <ul className="day-table">
         {items.map((item, index) => (
-          <ItineraryRow key={`${index}-${item.code}`} tripId={tripId} item={item} onSave={(u) => saveItem(index, u)} />
+          <ItineraryRow
+            key={`${index}-${item.code}`}
+            tripId={tripId}
+            item={item}
+            canEdit={canEdit}
+            onSave={(u) => saveItem(index, u)}
+          />
         ))}
       </ul>
-      <div className="day-table-footer">
-        <button type="button" className="btn btn-ghost btn-danger" onClick={handleClearDay}>
-          Clear day &amp; re-paste
-        </button>
-      </div>
+      {canEdit && (
+        <div className="day-table-footer">
+          <button type="button" className="btn btn-ghost btn-danger" onClick={handleClearDay}>
+            Clear day &amp; re-paste
+          </button>
+        </div>
+      )}
     </div>
   )
 }

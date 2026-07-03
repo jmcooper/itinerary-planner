@@ -5,7 +5,7 @@ import { TrashIcon } from './icons.jsx'
 // Images live in a per-trip store on the server; items hold only image ids.
 // Image data is fetched lazily: the thumbnail loads the first image when the
 // row is expanded, the rest load only when the carousel opens.
-export default function ItemImages({ tripId, imageIds, onChangeIds }) {
+export default function ItemImages({ tripId, imageIds, canEdit, onChangeIds }) {
   const [adding, setAdding] = useState(false)
   const [carouselOpen, setCarouselOpen] = useState(false)
   const [firstImage, setFirstImage] = useState(null)
@@ -40,6 +40,7 @@ export default function ItemImages({ tripId, imageIds, onChangeIds }) {
   }
 
   if (imageIds.length === 0) {
+    if (!canEdit) return null
     return (
       <div className="itin-images">
         {adding ? (
@@ -72,6 +73,7 @@ export default function ItemImages({ tripId, imageIds, onChangeIds }) {
         <ImageCarousel
           tripId={tripId}
           imageIds={imageIds}
+          canEdit={canEdit}
           onClose={() => setCarouselOpen(false)}
           onAdd={addImage}
           onDelete={deleteImage}
@@ -81,10 +83,11 @@ export default function ItemImages({ tripId, imageIds, onChangeIds }) {
   )
 }
 
-function ImageCarousel({ tripId, imageIds, onClose, onAdd, onDelete }) {
+function ImageCarousel({ tripId, imageIds, canEdit, onClose, onAdd, onDelete }) {
   const [index, setIndex] = useState(0)
   const [cache, setCache] = useState({})
-  const slideCount = imageIds.length + 1 // last slide is the uploader
+  // The last slide is the uploader, shown only to editors.
+  const slideCount = imageIds.length + (canEdit ? 1 : 0)
 
   useEffect(() => {
     let alive = true
@@ -155,15 +158,17 @@ function ImageCarousel({ tripId, imageIds, onClose, onAdd, onDelete }) {
           ) : cache[currentId] ? (
             <figure className="carousel-figure">
               <img src={cache[currentId]} alt={`Itinerary image ${current + 1}`} />
-              <button
-                type="button"
-                className="btn-icon btn-icon-danger carousel-delete"
-                onClick={handleDelete}
-                title="Delete this image"
-                aria-label="Delete this image"
-              >
-                <TrashIcon />
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  className="btn-icon btn-icon-danger carousel-delete"
+                  onClick={handleDelete}
+                  title="Delete this image"
+                  aria-label="Delete this image"
+                >
+                  <TrashIcon />
+                </button>
+              )}
             </figure>
           ) : (
             <p className="carousel-loading">Loading…</p>

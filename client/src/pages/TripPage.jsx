@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { listDates, formatDay, formatRange } from '../lib/dates.js'
 import DayView from '../components/DayView.jsx'
+import SharePanel from '../components/SharePanel.jsx'
 
 export default function TripPage() {
   const { id } = useParams()
@@ -39,7 +40,8 @@ export default function TripPage() {
   if (!trip) return <p className="empty-note">Loading trip…</p>
 
   const dates = listDates(trip.startDate, trip.endDate)
-  const needsDates = dates.length === 0 || editingDates
+  const canEdit = trip.canEdit ?? false
+  const needsDates = canEdit && (dates.length === 0 || editingDates)
 
   return (
     <div className="trip">
@@ -51,7 +53,7 @@ export default function TripPage() {
           <h1>{trip.name}</h1>
           <p className="trip-dates-line">
             {formatRange(trip.startDate, trip.endDate)}
-            {dates.length > 0 && !editingDates && (
+            {canEdit && dates.length > 0 && !editingDates && (
               <button type="button" className="btn btn-link" onClick={() => setEditingDates(true)}>
                 Change dates
               </button>
@@ -59,6 +61,8 @@ export default function TripPage() {
           </p>
         </div>
       </div>
+
+      {trip.isOwner && <SharePanel trip={trip} onSave={saveTrip} />}
 
       {needsDates ? (
         <DateRangeForm
@@ -71,6 +75,8 @@ export default function TripPage() {
             if (!newDates.includes(selectedDate)) setSelectedDate(newDates[0] ?? null)
           }}
         />
+      ) : dates.length === 0 ? (
+        <p className="empty-note">This trip has no dates yet.</p>
       ) : (
         <div className="trip-body">
           <aside className="day-nav" aria-label="Trip days">
@@ -106,6 +112,7 @@ export default function TripPage() {
                 tripId={trip.id}
                 date={selectedDate}
                 dayIndex={dates.indexOf(selectedDate)}
+                canEdit={canEdit}
                 day={trip.days?.[selectedDate] ?? {}}
                 onSaveDay={(patch) =>
                   saveTrip({
