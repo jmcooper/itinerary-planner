@@ -5,7 +5,7 @@ import { filterUsernames } from '../lib/users.js'
 // Owner-only controls: public/private toggle plus a searchable dropdown of
 // all usernames — click to browse, type to filter — with shared users shown
 // as removable chips.
-export default function SharePanel({ trip, onSave }) {
+export default function SharePanel({ trip, onSave, onClose }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const isPublic = trip.visibility === 'public'
@@ -25,6 +25,20 @@ export default function SharePanel({ trip, onSave }) {
 
   return (
     <div className="share-panel card">
+      <div className="share-panel-header">
+        <h2 className="share-panel-title">Trip Settings</h2>
+        {onClose && (
+          <button
+            type="button"
+            className="btn-icon share-panel-close"
+            onClick={onClose}
+            title="Close settings"
+            aria-label="Close settings"
+          >
+            ✕
+          </button>
+        )}
+      </div>
       <div className="share-visibility">
         <span className={`visibility-badge${isPublic ? ' public' : ''}`}>
           {isPublic ? 'Public' : 'Private'}

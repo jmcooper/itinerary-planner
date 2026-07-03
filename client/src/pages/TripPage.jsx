@@ -4,6 +4,7 @@ import { api } from '../api.js'
 import { listDates, formatDay, formatRange } from '../lib/dates.js'
 import DayView from '../components/DayView.jsx'
 import SharePanel from '../components/SharePanel.jsx'
+import { GearIcon } from '../components/icons.jsx'
 
 export default function TripPage() {
   const { id } = useParams()
@@ -11,6 +12,7 @@ export default function TripPage() {
   const [error, setError] = useState('')
   const [selectedDate, setSelectedDate] = useState(null)
   const [editingDates, setEditingDates] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     api
@@ -42,6 +44,8 @@ export default function TripPage() {
   const dates = listDates(trip.startDate, trip.endDate)
   const canEdit = trip.canEdit ?? false
   const needsDates = canEdit && (dates.length === 0 || editingDates)
+  // Legacy ownerless trips are public; owned trips default to private.
+  const isPublic = trip.ownerId ? trip.visibility === 'public' : true
 
   return (
     <div className="trip">
@@ -50,7 +54,24 @@ export default function TripPage() {
           <nav className="breadcrumb">
             <Link to="/">Trips</Link> <span aria-hidden="true">/</span>
           </nav>
-          <h1>{trip.name}</h1>
+          <div className="trip-title-row">
+            <h1>{trip.name}</h1>
+            <span className={`visibility-badge${isPublic ? ' public' : ''}`}>
+              {isPublic ? 'Public' : 'Private'}
+            </span>
+            {trip.isOwner && (
+              <button
+                type="button"
+                className={`btn-icon trip-settings-toggle${settingsOpen ? ' active' : ''}`}
+                onClick={() => setSettingsOpen((v) => !v)}
+                aria-expanded={settingsOpen}
+                title="Trip settings"
+                aria-label="Trip settings"
+              >
+                <GearIcon />
+              </button>
+            )}
+          </div>
           <p className="trip-dates-line">
             {formatRange(trip.startDate, trip.endDate)}
             {canEdit && dates.length > 0 && !editingDates && (
@@ -62,7 +83,9 @@ export default function TripPage() {
         </div>
       </div>
 
-      {trip.isOwner && <SharePanel trip={trip} onSave={saveTrip} />}
+      {trip.isOwner && settingsOpen && (
+        <SharePanel trip={trip} onSave={saveTrip} onClose={() => setSettingsOpen(false)} />
+      )}
 
       {needsDates ? (
         <DateRangeForm

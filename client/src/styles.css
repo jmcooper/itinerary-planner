@@ -1126,3 +1126,40 @@ label {
 .user-combobox-empty {
   padding: 0.4rem 0.6rem;
 }
+
+/* ---------- Trip settings toggle ---------- */
+
+.trip-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.trip-title-row h1 {
+  margin: 0;
+}
+
+.trip-settings-toggle {
+  color: var(--ink-soft);
+}
+
+.trip-settings-toggle.active {
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.share-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.share-panel-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.share-panel-close {
+  font-size: 0.95rem;
+  line-height: 1;
+}
