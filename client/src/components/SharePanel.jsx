@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { filterUsernames } from '../lib/users.js'
 
-// Owner-only controls: public/private toggle plus a searchable dropdown of
-// all usernames — click to browse, type to filter — with shared users shown
-// as removable chips.
+// Owner-only controls: trip rename, public/private toggle, plus a searchable
+// dropdown of all usernames — click to browse, type to filter — with shared
+// users shown as removable chips.
 export default function SharePanel({ trip, onSave, onClose }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [name, setName] = useState(trip.name)
   const isPublic = trip.visibility === 'public'
   const sharedWith = trip.sharedWith ?? []
+  const nameChanged = name.trim() !== trip.name && name.trim() !== ''
 
   async function save(patch) {
     setSaving(true)
@@ -39,6 +41,31 @@ export default function SharePanel({ trip, onSave, onClose }) {
           </button>
         )}
       </div>
+      <form
+        className="share-rename"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (nameChanged) save({ name: name.trim() })
+        }}
+      >
+        <label className="share-label" htmlFor="trip-name-input">
+          Trip name
+        </label>
+        <div className="share-rename-row">
+          <input
+            id="trip-name-input"
+            type="text"
+            value={name}
+            maxLength={120}
+            disabled={saving}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <button type="submit" className="btn btn-primary btn-small" disabled={saving || !nameChanged}>
+            {saving ? 'Saving…' : 'Rename'}
+          </button>
+        </div>
+      </form>
+
       <div className="share-visibility">
         <span className={`visibility-badge${isPublic ? ' public' : ''}`}>
           {isPublic ? 'Public' : 'Private'}
