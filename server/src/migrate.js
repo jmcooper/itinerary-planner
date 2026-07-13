@@ -5,6 +5,35 @@ import { readdir, readFile, writeFile, mkdir, copyFile } from 'node:fs/promises'
 import path from 'node:path'
 import { migrateTripDays } from './timeblocks.js'
 
+function toUtc(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return Date.UTC(y, m - 1, d)
+}
+
+function listDates(startDate, endDate) {
+  const dates = []
+  for (let t = toUtc(startDate); t <= toUtc(endDate) && dates.length < 366; t += 86400000) {
+    dates.push(new Date(t).toISOString().slice(0, 10))
+  }
+  return dates
+}
+
+// Converts a range-based trip (startDate/endDate + sparse days) to the
+// explicit-days shape: every in-range date gets a day entry (empty entries for
+// unplanned dates) and the range fields are removed. Returns true if changed.
+export function normalizeTripShape(trip) {
+  if (!('startDate' in trip) && !('endDate' in trip)) return false
+  trip.days = trip.days ?? {}
+  if (trip.startDate && trip.endDate && trip.endDate >= trip.startDate) {
+    for (const date of listDates(trip.startDate, trip.endDate)) {
+      trip.days[date] ??= { title: '', mapsUrl: '', items: [] }
+    }
+  }
+  delete trip.startDate
+  delete trip.endDate
+  return true
+}
+
 export async function migrateDataDir(dataDir) {
   let files
   try {
@@ -36,7 +65,9 @@ export async function migrateDataDir(dataDir) {
       continue
     }
     if (!trip || typeof trip !== 'object' || !trip.days) continue
-    if (!migrateTripDays(trip)) continue
+    const itemsChanged = migrateTripDays(trip)
+    const shapeChanged = normalizeTripShape(trip)
+    if (!itemsChanged && !shapeChanged) continue
     // Back up the original before overwriting it
     await mkdir(backupDir, { recursive: true })
     await copyFile(full, path.join(backupDir, file))

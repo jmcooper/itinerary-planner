@@ -50,8 +50,6 @@ after(async () => rm(dataDir, { recursive: true, force: true }))
 const baseInput = () => ({
   tripName: 'Yellowstone 2026',
   summary: 'Two days of geysers',
-  startDate: '2026-07-01',
-  endDate: '2026-07-02',
   days: [
     {
       date: '2026-07-01',
@@ -65,14 +63,12 @@ const baseInput = () => ({
   ],
 })
 
-test('applyItineraryUpdate writes days, name, dates, summary, maps link', async () => {
+test('applyItineraryUpdate writes days, name, summary, maps link', async () => {
   const result = await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
-  assert.deepEqual(result, { ok: true, savedDays: ['2026-07-01'] })
+  assert.deepEqual(result, { ok: true, savedDays: ['2026-07-01'], removedDays: [] })
   const trip = await storage.readTrip('yellowstone')
   assert.equal(trip.name, 'Yellowstone 2026')
   assert.equal(trip.summary, 'Two days of geysers')
-  assert.equal(trip.startDate, '2026-07-01')
-  assert.equal(trip.endDate, '2026-07-02')
   const day = trip.days['2026-07-01']
   assert.equal(day.title, 'West side geysers')
   assert.ok(day.mapsUrl.includes('origin=West%20Yellowstone'))
@@ -83,18 +79,22 @@ test('applyItineraryUpdate writes days, name, dates, summary, maps link', async 
   assert.deepEqual(day.items[1].imageIds, [])
 })
 
-test('applyItineraryUpdate rejects days outside the trip range', async () => {
-  const input = baseInput()
-  input.days[0].date = '2026-07-09'
-  await assert.rejects(
-    () => applyItineraryUpdate(input, { storage, tripId: 'yellowstone' }),
-    /outside the trip range/
-  )
+test('applyItineraryUpdate removes days listed in removeDates', async () => {
+  await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
+  const input = { summary: 'One day now', days: [], removeDates: ['2026-07-01', '2026-07-09'] }
+  const result = await applyItineraryUpdate(input, { storage, tripId: 'yellowstone' })
+  assert.deepEqual(result, { ok: true, savedDays: [], removedDays: ['2026-07-01'] })
+  const trip = await storage.readTrip('yellowstone')
+  assert.ok(!('2026-07-01' in trip.days))
 })
 
 test('applyItineraryUpdate rejects bad date and time formats', async () => {
-  const badDate = { ...baseInput(), startDate: 'July 1' }
+  const badDate = baseInput()
+  badDate.days[0].date = 'July 1'
   await assert.rejects(() => applyItineraryUpdate(badDate, { storage, tripId: 'yellowstone' }), /YYYY-MM-DD/)
+
+  const badRemove = { summary: 's', days: [], removeDates: ['tomorrow'] }
+  await assert.rejects(() => applyItineraryUpdate(badRemove, { storage, tripId: 'yellowstone' }), /removeDates/)
 
   const badTime = baseInput()
   badTime.days[0].items[0].timeStart = '8:15 am'

@@ -20,8 +20,6 @@ function fakeAgent() {
       emit('text', { text: 'Planning your trip' })
       const fresh = await storage.readTrip(trip.id)
       fresh.name = 'Yellowstone 2026'
-      fresh.startDate = '2026-07-01'
-      fresh.endDate = '2026-07-02'
       fresh.summary = 'Two days in Yellowstone'
       fresh.days = {
         '2026-07-01': {
@@ -82,7 +80,6 @@ test('POST /api/trips/ai creates a placeholder trip from a description', async (
   assert.equal(res.body.ownerId, 'alice')
   assert.equal(res.body.aiCreated, true)
   assert.ok(res.body.name.length > 0)
-  assert.equal(res.body.startDate, null)
   assert.deepEqual(res.body.days, {})
 })
 

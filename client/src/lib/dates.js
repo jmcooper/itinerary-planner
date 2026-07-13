@@ -12,6 +12,12 @@ export function listDates(startDate, endDate) {
   return dates
 }
 
+// A trip's day list is simply the dates of its day entries, sorted. Days own
+// their dates — there is no separate range, and gaps are fine.
+export function listTripDates(trip) {
+  return Object.keys(trip.days ?? {}).sort()
+}
+
 function toUtc(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number)
   return Date.UTC(y, m - 1, d)

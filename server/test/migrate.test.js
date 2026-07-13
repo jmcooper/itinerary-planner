@@ -57,6 +57,58 @@ test('migrateDataDir is a no-op on already-migrated data', async () => {
   assert.equal(backups.length, 1)
 })
 
+test('migrateDataDir converts range-based trips to explicit days', async () => {
+  const rangeTrip = {
+    id: 'range-trip',
+    name: 'Range',
+    startDate: '2026-07-01',
+    endDate: '2026-07-03',
+    days: {
+      '2026-07-02': {
+        title: 'Planned',
+        mapsUrl: '',
+        items: [
+          {
+            timeStart: '08:00',
+            timeEnd: null,
+            timeLabel: null,
+            title: 'Go',
+            description: '',
+            imageIds: [],
+          },
+        ],
+      },
+    },
+  }
+  await writeFile(path.join(dataDir, 'range-trip.json'), JSON.stringify(rangeTrip))
+
+  const result = await migrateDataDir(dataDir)
+  assert.equal(result.migrated, 1)
+
+  const migrated = JSON.parse(await readFile(path.join(dataDir, 'range-trip.json'), 'utf8'))
+  // Every in-range date now has an explicit day entry; the range fields are gone
+  assert.deepEqual(Object.keys(migrated.days).sort(), ['2026-07-01', '2026-07-02', '2026-07-03'])
+  assert.deepEqual(migrated.days['2026-07-01'], { title: '', mapsUrl: '', items: [] })
+  assert.equal(migrated.days['2026-07-02'].title, 'Planned')
+  assert.ok(!('startDate' in migrated))
+  assert.ok(!('endDate' in migrated))
+
+  // Second run is a no-op
+  assert.equal((await migrateDataDir(dataDir)).migrated, 0)
+})
+
+test('migrateDataDir drops null range fields without inventing days', async () => {
+  await writeFile(
+    path.join(dataDir, 'shell.json'),
+    JSON.stringify({ id: 'shell', name: 'Shell', startDate: null, endDate: null, days: {} })
+  )
+  const result = await migrateDataDir(dataDir)
+  assert.equal(result.migrated, 1)
+  const migrated = JSON.parse(await readFile(path.join(dataDir, 'shell.json'), 'utf8'))
+  assert.deepEqual(migrated.days, {})
+  assert.ok(!('startDate' in migrated))
+})
+
 test('migrateDataDir handles a missing data dir and empty trips', async () => {
   const missing = await migrateDataDir(path.join(dataDir, 'does-not-exist'))
   assert.deepEqual(missing, { migrated: 0, backupDir: null })

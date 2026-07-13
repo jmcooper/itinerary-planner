@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { api } from '../api.js'
-import { listDates, formatDay, formatRange } from '../lib/dates.js'
+import { listDates, listTripDates, formatDay, formatRange } from '../lib/dates.js'
 import DayView from '../components/DayView.jsx'
 import SharePanel from '../components/SharePanel.jsx'
 import ChatPanel from '../components/ChatPanel.jsx'
@@ -26,7 +26,7 @@ export default function TripPage() {
       .getTrip(id)
       .then((t) => {
         setTrip(t)
-        const dates = listDates(t.startDate, t.endDate)
+        const dates = listTripDates(t)
         if (dates.length > 0) setSelectedDate(dates[0])
       })
       .catch((err) => setError(err.message))
@@ -48,12 +48,21 @@ export default function TripPage() {
       const t = await api.getTrip(id)
       setTrip(t)
       setSelectedDate((current) => {
-        const dates = listDates(t.startDate, t.endDate)
+        const dates = listTripDates(t)
         return current && dates.includes(current) ? current : dates[0] ?? null
       })
     } catch {
       // transient refresh failures are non-fatal; the next event retries
     }
+  }
+
+  // Removes a day entirely; remaining days keep their dates (gaps are fine).
+  async function deleteDay(date) {
+    const { [date]: _removed, ...remainingDays } = trip.days ?? {}
+    const updated = await saveTrip({ days: remainingDays })
+    const remaining = listTripDates(updated)
+    const next = remaining.find((d) => d > date) ?? remaining[remaining.length - 1] ?? null
+    setSelectedDate(next)
   }
 
   if (error) {
@@ -66,7 +75,7 @@ export default function TripPage() {
   }
   if (!trip) return <p className="empty-note">Loading trip…</p>
 
-  const dates = listDates(trip.startDate, trip.endDate)
+  const dates = listTripDates(trip)
   const canEdit = trip.canEdit ?? false
   const showChat = ai.enabled && canEdit
   const awaitingFirstItinerary = showChat && chatBusy && dates.length === 0
@@ -75,13 +84,17 @@ export default function TripPage() {
   const isPublic = trip.ownerId ? trip.visibility === 'public' : true
 
   const itinerary = needsDates ? (
-    <DateRangeForm
-      trip={trip}
+    <AddDaysForm
       onCancel={dates.length > 0 ? () => setEditingDates(false) : null}
       onSave={async (startDate, endDate) => {
-        const updated = await saveTrip({ startDate, endDate })
+        // Seed an (empty) day entry per date; existing days are untouched.
+        const seeded = { ...(trip.days ?? {}) }
+        for (const d of listDates(startDate, endDate)) {
+          seeded[d] ??= { title: '', mapsUrl: '', items: [] }
+        }
+        const updated = await saveTrip({ days: seeded })
         setEditingDates(false)
-        const newDates = listDates(updated.startDate, updated.endDate)
+        const newDates = listTripDates(updated)
         if (!newDates.includes(selectedDate)) setSelectedDate(newDates[0] ?? null)
       }}
     />
@@ -134,6 +147,7 @@ export default function TripPage() {
                 },
               })
             }
+            onDeleteDay={() => deleteDay(selectedDate)}
           />
         ) : (
           <p className="empty-note">Select a day on the left.</p>
@@ -168,10 +182,11 @@ export default function TripPage() {
             )}
           </div>
           <p className="trip-dates-line">
-            {formatRange(trip.startDate, trip.endDate)}
+            {formatRange(dates[0], dates[dates.length - 1])}
+            {dates.length > 0 && <span className="muted"> · {dates.length} day{dates.length === 1 ? '' : 's'}</span>}
             {canEdit && dates.length > 0 && !editingDates && (
               <button type="button" className="btn btn-link" onClick={() => setEditingDates(true)}>
-                Change dates
+                Add days
               </button>
             )}
           </p>
@@ -252,22 +267,22 @@ function SkeletonDays() {
   )
 }
 
-function DateRangeForm({ trip, onSave, onCancel }) {
-  const [startDate, setStartDate] = useState(trip.startDate ?? '')
-  const [endDate, setEndDate] = useState(trip.endDate ?? '')
+function AddDaysForm({ onSave, onCancel }) {
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!startDate || !endDate) return setError('Choose both a start and end date.')
-    if (endDate < startDate) return setError('The end date must be on or after the start date.')
-    if (listDates(startDate, endDate).length > 60)
-      return setError('Trips are limited to 60 days.')
+    const end = endDate || startDate // a single day needs no end date
+    if (!startDate) return setError('Choose a start date.')
+    if (end < startDate) return setError('The end date must be on or after the start date.')
+    if (listDates(startDate, end).length > 60) return setError('Add at most 60 days at a time.')
     setSaving(true)
     setError('')
     try {
-      await onSave(startDate, endDate)
+      await onSave(startDate, end)
     } catch (err) {
       setError(err.message)
       setSaving(false)
@@ -276,23 +291,26 @@ function DateRangeForm({ trip, onSave, onCancel }) {
 
   return (
     <form className="date-range-form card" onSubmit={handleSubmit}>
-      <h2>When is this trip?</h2>
-      <p className="muted">Pick the date range — each day gets its own itinerary.</p>
+      <h2>Add days</h2>
+      <p className="muted">
+        Pick a date or range to add — each day gets its own itinerary. Days you already have are
+        left untouched.
+      </p>
       <div className="date-range-inputs">
         <label>
-          Start date
+          From
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
         </label>
         <span className="date-range-sep" aria-hidden="true">→</span>
         <label>
-          End date
-          <input type="date" value={endDate} min={startDate || undefined} onChange={(e) => setEndDate(e.target.value)} required />
+          Through (optional)
+          <input type="date" value={endDate} min={startDate || undefined} onChange={(e) => setEndDate(e.target.value)} />
         </label>
       </div>
       {error && <p className="error">{error}</p>}
       <div className="form-actions">
         <button type="submit" className="btn btn-primary" disabled={saving}>
-          {saving ? 'Saving…' : 'Set Dates'}
+          {saving ? 'Adding…' : 'Add Days'}
         </button>
         {onCancel && (
           <button type="button" className="btn btn-ghost" onClick={onCancel}>

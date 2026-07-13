@@ -21,12 +21,10 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 const itineraryUpdateSchema = z.object({
   tripName: z.string().min(1).optional().describe('Set or update the trip name'),
   summary: z.string().describe('A brief 1-3 sentence description of the itinerary'),
-  startDate: z.string().describe('Trip start date, YYYY-MM-DD'),
-  endDate: z.string().describe('Trip end date, YYYY-MM-DD'),
   days: z
     .array(
       z.object({
-        date: z.string().describe('YYYY-MM-DD; must fall within startDate..endDate'),
+        date: z.string().describe('The date this day covers, YYYY-MM-DD'),
         title: z.string().describe('Short title for the day'),
         waypoints: z
           .array(z.string())
@@ -44,18 +42,18 @@ const itineraryUpdateSchema = z.object({
       })
     )
     .describe('Full replacement for each listed day; days not listed are left unchanged'),
+  removeDates: z
+    .array(z.string())
+    .optional()
+    .describe('Dates (YYYY-MM-DD) to delete from the itinerary entirely'),
 })
 
 // Applies an updateItinerary tool call to the stored trip. Exported for tests.
 export async function applyItineraryUpdate(input, { storage, tripId }) {
   const trip = await storage.readTrip(tripId)
   if (!trip) throw new Error(`trip ${tripId} not found`)
-  if (!DATE_RE.test(input.startDate) || !DATE_RE.test(input.endDate) || input.endDate < input.startDate)
-    throw new Error('startDate/endDate must be valid YYYY-MM-DD with endDate >= startDate')
   for (const day of input.days) {
     if (!DATE_RE.test(day.date)) throw new Error(`invalid day date: ${day.date} — use YYYY-MM-DD`)
-    if (day.date < input.startDate || day.date > input.endDate)
-      throw new Error(`day ${day.date} is outside the trip range ${input.startDate}..${input.endDate}`)
     for (const item of day.items) {
       for (const key of ['timeStart', 'timeEnd']) {
         if (item[key] != null && !TIME_RE.test(item[key]))
@@ -63,10 +61,11 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
       }
     }
   }
+  for (const date of input.removeDates ?? []) {
+    if (!DATE_RE.test(date)) throw new Error(`invalid removeDates entry: ${date} — use YYYY-MM-DD`)
+  }
   if (input.tripName) trip.name = input.tripName.trim()
   trip.summary = input.summary
-  trip.startDate = input.startDate
-  trip.endDate = input.endDate
   trip.days = trip.days ?? {}
   const savedDays = []
   for (const day of input.days) {
@@ -86,9 +85,16 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
     }
     savedDays.push(day.date)
   }
+  const removedDays = []
+  for (const date of input.removeDates ?? []) {
+    if (date in trip.days) {
+      delete trip.days[date]
+      removedDays.push(date)
+    }
+  }
   trip.updatedAt = new Date().toISOString()
   await storage.writeTrip(trip)
-  return { ok: true, savedDays }
+  return { ok: true, savedDays, removedDays }
 }
 
 function systemPrompt(trip) {
@@ -110,14 +116,14 @@ Today's date is ${new Date().toISOString().slice(0, 10)}.
 
 Current trip state:
 - Name: ${trip.name}
-- Dates: ${trip.startDate ?? 'not set'} to ${trip.endDate ?? 'not set'}
 - Summary: ${trip.summary || '(none)'}
-- Days:
-${dayLines || '  (no days planned yet)'}
+- Days (each day owns its date; the trip has no separate date range):
+${dayLines || '  (no days yet)'}
 
 Rules:
 - Whenever you create or change the itinerary, call the updateItinerary tool. Never describe an itinerary as saved unless the tool call succeeded.
-- Extract the trip name and start/end dates from the user's description when creating a new itinerary.
+- Extract the trip name and the dates for each day from the user's description when creating a new itinerary.
+- To delete days (e.g. "drop day 2", "cut the last day"), pass their dates in removeDates. Days may be non-contiguous — deleting a middle day leaves a gap.
 - For each day, provide ordered waypoints (real place names, including where the day starts and ends) so the app can build a Google Maps link.
 - Item descriptions are markdown; keep them informative but compact (why it's worth doing, practical tips, distances/durations).
 - Plan realistic timings, driving distances, and pacing. Respect the traveler's stated constraints.
@@ -259,7 +265,11 @@ export function createAiAgent(env = process.env) {
       description:
         'Create or update the trip itinerary. Replaces each listed day entirely; unlisted days are untouched. Also sets the trip name, summary, and date range.',
       inputSchema: itineraryUpdateSchema,
-      outputSchema: z.object({ ok: z.boolean(), savedDays: z.array(z.string()) }),
+      outputSchema: z.object({
+        ok: z.boolean(),
+        savedDays: z.array(z.string()),
+        removedDays: z.array(z.string()),
+      }),
     },
     async (input, { context }) => {
       const result = await applyItineraryUpdate(input, context)

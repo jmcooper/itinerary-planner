@@ -72,20 +72,34 @@ test('GET /api/trips/:id 404s for unknown trip', async () => {
   assert.equal(res.status, 404)
 })
 
-test('PUT /api/trips/:id updates dates and days', async () => {
+test('PUT /api/trips/:id updates days', async () => {
   const created = await alice.post('/api/trips').send({ name: 'Disneyland' })
   const id = created.body.id
-  const items = [{ time: '8:00 am', plan: 'Leave hotel', code: 'S1', details: '## S1 — Leave hotel\n\nGo.' }]
+  const items = [
+    { timeStart: '08:00', timeEnd: null, timeLabel: null, title: 'Leave hotel', description: 'Go.', imageIds: [] },
+  ]
   const res = await alice
     .put(`/api/trips/${id}`)
-    .send({ startDate: '2026-07-04', endDate: '2026-07-06', days: { '2026-07-04': { items } } })
+    .send({ days: { '2026-07-04': { title: '', mapsUrl: '', items }, '2026-07-06': { title: '', mapsUrl: '', items: [] } } })
   assert.equal(res.status, 200)
-  assert.equal(res.body.startDate, '2026-07-04')
-  assert.equal(res.body.days['2026-07-04'].items[0].plan, 'Leave hotel')
+  assert.equal(res.body.days['2026-07-04'].items[0].title, 'Leave hotel')
 
   const fetched = await alice.get(`/api/trips/${id}`)
-  assert.equal(fetched.body.endDate, '2026-07-06')
   assert.equal(fetched.body.days['2026-07-04'].items.length, 1)
+
+  // Trip lists derive the date span from the day entries
+  const list = await alice.get('/api/trips')
+  const summary = list.body.mine.find((t) => t.id === id)
+  assert.equal(summary.startDate, '2026-07-04')
+  assert.equal(summary.endDate, '2026-07-06')
+})
+
+test('PUT /api/trips/:id rejects non-date day keys', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Bad Keys' })
+  const res = await alice
+    .put(`/api/trips/${created.body.id}`)
+    .send({ days: { tuesday: { title: '', mapsUrl: '', items: [] } } })
+  assert.equal(res.status, 400)
 })
 
 test('PUT /api/trips/:id round-trips extra day fields like mapsUrl', async () => {
@@ -100,10 +114,10 @@ test('PUT /api/trips/:id round-trips extra day fields like mapsUrl', async () =>
 test('PUT /api/trips/:id preserves fields not in the payload', async () => {
   const created = await alice.post('/api/trips').send({ name: 'Keep Me' })
   const id = created.body.id
-  await alice.put(`/api/trips/${id}`).send({ startDate: '2026-08-01', endDate: '2026-08-03' })
+  await alice.put(`/api/trips/${id}`).send({ days: { '2026-08-01': { title: '', mapsUrl: '', items: [] } } })
   const res = await alice.put(`/api/trips/${id}`).send({ name: 'Renamed' })
   assert.equal(res.body.name, 'Renamed')
-  assert.equal(res.body.startDate, '2026-08-01')
+  assert.ok('2026-08-01' in res.body.days)
 })
 
 test('PUT /api/trips/:id 404s for unknown trip', async () => {

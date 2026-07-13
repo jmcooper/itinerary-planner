@@ -129,8 +129,6 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
         ownerId: req.username,
         visibility: 'private',
         sharedWith: [],
-        startDate: null,
-        endDate: null,
         summary: '',
         aiCreated: true,
         days: {},
@@ -145,12 +143,14 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
   // ---- Trips ----
 
   function summarize(trip) {
-    const { id, name, startDate, endDate, createdAt, updatedAt } = trip
+    const { id, name, createdAt, updatedAt } = trip
+    // The trip's span is derived from its day entries (days own their dates).
+    const dates = Object.keys(trip.days ?? {}).sort()
     return {
       id,
       name,
-      startDate,
-      endDate,
+      startDate: dates[0] ?? null,
+      endDate: dates[dates.length - 1] ?? null,
       createdAt,
       updatedAt,
       ownerId: trip.ownerId ?? null,
@@ -192,8 +192,6 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
         ownerId: req.username,
         visibility: 'private',
         sharedWith: [],
-        startDate: null,
-        endDate: null,
         days: {},
         createdAt: now,
         updatedAt: now,
@@ -268,16 +266,11 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
           return res.status(400).json({ error: 'name must be a non-empty string' })
         trip.name = body.name.trim()
       }
-      for (const key of ['startDate', 'endDate']) {
-        if (key in body) {
-          if (body[key] !== null && !/^\d{4}-\d{2}-\d{2}$/.test(body[key]))
-            return res.status(400).json({ error: `${key} must be YYYY-MM-DD or null` })
-          trip[key] = body[key]
-        }
-      }
       if ('days' in body) {
         if (typeof body.days !== 'object' || body.days === null || Array.isArray(body.days))
           return res.status(400).json({ error: 'days must be an object keyed by date' })
+        if (Object.keys(body.days).some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d)))
+          return res.status(400).json({ error: 'days keys must be YYYY-MM-DD dates' })
         trip.days = body.days
       }
       trip.updatedAt = new Date().toISOString()

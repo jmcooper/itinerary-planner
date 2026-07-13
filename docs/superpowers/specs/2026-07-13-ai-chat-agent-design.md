@@ -90,7 +90,13 @@ bubbles, model text left as markdown, and `toolRequest` parts as compact
 - `updateItinerary` tool (zod `inputSchema`):
   - `tripName?: string` — set/replace the trip name (first generation extracts it).
   - `summary: string` — brief itinerary description.
-  - `startDate`, `endDate` — `YYYY-MM-DD`; updates the trip range.
+  - `removeDates?: string[]` — dates to delete from the itinerary entirely.
+
+  (2026-07-13 revision: trips no longer store a `startDate`/`endDate` range. `trip.days`
+  is the single source of truth — a day exists iff it has an entry, entries may be
+  non-contiguous, and the displayed span is derived from the day dates. The manual
+  date-range picker became an "Add days" form that seeds empty day entries, and days
+  can be deleted individually from the day view or via the tool's `removeDates`.)
   - `days: [{ date, title, waypoints: string[], items: [{ timeStart, timeEnd, title, description }] }]`
     — full replacement for each listed day; unlisted days are untouched.
   - Handler: validates shape/dates, builds `mapsUrl` per day from ordered `waypoints`

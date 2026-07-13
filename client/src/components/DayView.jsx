@@ -5,11 +5,21 @@ import { convertImportItems } from '../lib/time.js'
 import ItineraryRow from './ItineraryRow.jsx'
 import { PencilIcon, TrashIcon } from './icons.jsx'
 
-export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDay }) {
+export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDay, onDeleteDay }) {
   const { weekday, label, year } = formatDay(date)
   const heading = `Day ${dayIndex + 1} — ${weekday}, ${label}, ${year}`
   const items = day.items ?? []
   const onSaveItems = (nextItems) => onSaveDay({ items: nextItems })
+
+  function handleDelete() {
+    if (
+      !window.confirm(
+        `Delete Day ${dayIndex + 1} (${weekday}, ${label})? Its itinerary will be removed; other days keep their dates.`
+      )
+    )
+      return
+    onDeleteDay()
+  }
 
   return (
     <div className="day-view">
@@ -18,11 +28,24 @@ export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDa
           <h2 className="day-title">{heading}</h2>
           <DayTitle title={day.title ?? ''} canEdit={canEdit} onSave={(title) => onSaveDay({ title })} />
         </div>
-        <MapsLink
-          mapsUrl={day.mapsUrl ?? ''}
-          canEdit={canEdit}
-          onSave={(mapsUrl) => onSaveDay({ mapsUrl })}
-        />
+        <div className="day-header-actions">
+          <MapsLink
+            mapsUrl={day.mapsUrl ?? ''}
+            canEdit={canEdit}
+            onSave={(mapsUrl) => onSaveDay({ mapsUrl })}
+          />
+          {canEdit && onDeleteDay && (
+            <button
+              type="button"
+              className="btn-icon btn-icon-danger"
+              onClick={handleDelete}
+              title="Delete this day"
+              aria-label="Delete this day"
+            >
+              <TrashIcon />
+            </button>
+          )}
+        </div>
       </div>
       {items.length === 0 ? (
         canEdit ? (
