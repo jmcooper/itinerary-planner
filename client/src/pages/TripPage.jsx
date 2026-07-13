@@ -1,18 +1,25 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { listDates, formatDay, formatRange } from '../lib/dates.js'
 import DayView from '../components/DayView.jsx'
 import SharePanel from '../components/SharePanel.jsx'
+import ChatPanel from '../components/ChatPanel.jsx'
 import { GearIcon } from '../components/icons.jsx'
 
 export default function TripPage() {
   const { id } = useParams()
+  const location = useLocation()
+  const initialPrompt = location.state?.initialPrompt ?? null
+  const initialModel = location.state?.model ?? null
   const [trip, setTrip] = useState(null)
+  const [ai, setAi] = useState({ enabled: false, models: [] })
   const [error, setError] = useState('')
   const [selectedDate, setSelectedDate] = useState(null)
   const [editingDates, setEditingDates] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [mobileView, setMobileView] = useState(initialPrompt ? 'chat' : 'itinerary')
+  const [chatBusy, setChatBusy] = useState(Boolean(initialPrompt))
 
   useEffect(() => {
     api
@@ -23,12 +30,30 @@ export default function TripPage() {
         if (dates.length > 0) setSelectedDate(dates[0])
       })
       .catch((err) => setError(err.message))
+    api
+      .aiStatus()
+      .then(setAi)
+      .catch(() => setAi({ enabled: false, models: [] }))
   }, [id])
 
   async function saveTrip(patch) {
     const updated = await api.updateTrip(id, patch)
     setTrip(updated)
     return updated
+  }
+
+  // Called when the assistant writes to the trip mid-stream.
+  async function refreshTrip() {
+    try {
+      const t = await api.getTrip(id)
+      setTrip(t)
+      setSelectedDate((current) => {
+        const dates = listDates(t.startDate, t.endDate)
+        return current && dates.includes(current) ? current : dates[0] ?? null
+      })
+    } catch {
+      // transient refresh failures are non-fatal; the next event retries
+    }
   }
 
   if (error) {
@@ -43,9 +68,79 @@ export default function TripPage() {
 
   const dates = listDates(trip.startDate, trip.endDate)
   const canEdit = trip.canEdit ?? false
-  const needsDates = canEdit && (dates.length === 0 || editingDates)
+  const showChat = ai.enabled && canEdit
+  const awaitingFirstItinerary = showChat && chatBusy && dates.length === 0
+  const needsDates = canEdit && !awaitingFirstItinerary && (dates.length === 0 || editingDates)
   // Legacy ownerless trips are public; owned trips default to private.
   const isPublic = trip.ownerId ? trip.visibility === 'public' : true
+
+  const itinerary = needsDates ? (
+    <DateRangeForm
+      trip={trip}
+      onCancel={dates.length > 0 ? () => setEditingDates(false) : null}
+      onSave={async (startDate, endDate) => {
+        const updated = await saveTrip({ startDate, endDate })
+        setEditingDates(false)
+        const newDates = listDates(updated.startDate, updated.endDate)
+        if (!newDates.includes(selectedDate)) setSelectedDate(newDates[0] ?? null)
+      }}
+    />
+  ) : awaitingFirstItinerary ? (
+    <SkeletonDays />
+  ) : dates.length === 0 ? (
+    <p className="empty-note">This trip has no dates yet.</p>
+  ) : (
+    <div className="trip-body">
+      <aside className="day-nav" aria-label="Trip days">
+        <ol>
+          {dates.map((date, i) => {
+            const { weekday, label } = formatDay(date)
+            const hasItems = (trip.days?.[date]?.items?.length ?? 0) > 0
+            return (
+              <li key={date}>
+                <button
+                  type="button"
+                  className={`day-nav-item${date === selectedDate ? ' selected' : ''}`}
+                  onClick={() => setSelectedDate(date)}
+                >
+                  <span className="day-nav-num">Day {i + 1}</span>
+                  <span className="day-nav-date">
+                    {weekday}, {label}
+                  </span>
+                  <span
+                    className={`day-nav-dot${hasItems ? ' filled' : ''}`}
+                    title={hasItems ? 'Itinerary added' : 'No itinerary yet'}
+                  />
+                </button>
+              </li>
+            )
+          })}
+        </ol>
+      </aside>
+      <section className="day-panel">
+        {selectedDate ? (
+          <DayView
+            key={selectedDate}
+            tripId={trip.id}
+            date={selectedDate}
+            dayIndex={dates.indexOf(selectedDate)}
+            canEdit={canEdit}
+            day={trip.days?.[selectedDate] ?? {}}
+            onSaveDay={(patch) =>
+              saveTrip({
+                days: {
+                  ...trip.days,
+                  [selectedDate]: { ...(trip.days?.[selectedDate] ?? {}), ...patch },
+                },
+              })
+            }
+          />
+        ) : (
+          <p className="empty-note">Select a day on the left.</p>
+        )}
+      </section>
+    </div>
+  )
 
   return (
     <div className="trip">
@@ -80,6 +175,7 @@ export default function TripPage() {
               </button>
             )}
           </p>
+          {trip.summary && <p className="trip-summary">{trip.summary}</p>}
         </div>
       </div>
 
@@ -87,71 +183,71 @@ export default function TripPage() {
         <SharePanel trip={trip} onSave={saveTrip} onClose={() => setSettingsOpen(false)} />
       )}
 
-      {needsDates ? (
-        <DateRangeForm
-          trip={trip}
-          onCancel={dates.length > 0 ? () => setEditingDates(false) : null}
-          onSave={async (startDate, endDate) => {
-            const updated = await saveTrip({ startDate, endDate })
-            setEditingDates(false)
-            const newDates = listDates(updated.startDate, updated.endDate)
-            if (!newDates.includes(selectedDate)) setSelectedDate(newDates[0] ?? null)
-          }}
-        />
-      ) : dates.length === 0 ? (
-        <p className="empty-note">This trip has no dates yet.</p>
-      ) : (
-        <div className="trip-body">
-          <aside className="day-nav" aria-label="Trip days">
-            <ol>
-              {dates.map((date, i) => {
-                const { weekday, label } = formatDay(date)
-                const hasItems = (trip.days?.[date]?.items?.length ?? 0) > 0
-                return (
-                  <li key={date}>
-                    <button
-                      type="button"
-                      className={`day-nav-item${date === selectedDate ? ' selected' : ''}`}
-                      onClick={() => setSelectedDate(date)}
-                    >
-                      <span className="day-nav-num">Day {i + 1}</span>
-                      <span className="day-nav-date">
-                        {weekday}, {label}
-                      </span>
-                      <span
-                        className={`day-nav-dot${hasItems ? ' filled' : ''}`}
-                        title={hasItems ? 'Itinerary added' : 'No itinerary yet'}
-                      />
-                    </button>
-                  </li>
-                )
-              })}
-            </ol>
-          </aside>
-          <section className="day-panel">
-            {selectedDate ? (
-              <DayView
-                key={selectedDate}
-                tripId={trip.id}
-                date={selectedDate}
-                dayIndex={dates.indexOf(selectedDate)}
-                canEdit={canEdit}
-                day={trip.days?.[selectedDate] ?? {}}
-                onSaveDay={(patch) =>
-                  saveTrip({
-                    days: {
-                      ...trip.days,
-                      [selectedDate]: { ...(trip.days?.[selectedDate] ?? {}), ...patch },
-                    },
-                  })
-                }
-              />
-            ) : (
-              <p className="empty-note">Select a day on the left.</p>
-            )}
-          </section>
+      {showChat && (
+        <div className="trip-tabs" role="tablist" aria-label="Trip view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileView === 'itinerary'}
+            className={`trip-tab${mobileView === 'itinerary' ? ' active' : ''}`}
+            onClick={() => setMobileView('itinerary')}
+          >
+            Itinerary
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileView === 'chat'}
+            className={`trip-tab${mobileView === 'chat' ? ' active' : ''}`}
+            onClick={() => setMobileView('chat')}
+          >
+            Assistant
+          </button>
         </div>
       )}
+
+      {showChat ? (
+        <div className="trip-columns">
+          <div className={`trip-main${mobileView === 'chat' ? ' mobile-hidden' : ''}`}>
+            {itinerary}
+          </div>
+          <div className={`trip-chat${mobileView === 'itinerary' ? ' mobile-hidden' : ''}`}>
+            <ChatPanel
+              tripId={trip.id}
+              models={ai.models}
+              initialPrompt={initialPrompt}
+              initialModel={initialModel}
+              onTripChanged={refreshTrip}
+              onBusyChange={setChatBusy}
+            />
+          </div>
+        </div>
+      ) : (
+        itinerary
+      )}
+    </div>
+  )
+}
+
+function SkeletonDays() {
+  return (
+    <div className="trip-body skeleton" aria-hidden="true">
+      <aside className="day-nav">
+        <ol>
+          {[0, 1, 2].map((i) => (
+            <li key={i}>
+              <div className="day-nav-item skeleton-bar" />
+            </li>
+          ))}
+        </ol>
+      </aside>
+      <section className="day-panel">
+        <div className="skeleton-bar skeleton-title" />
+        <div className="skeleton-bar" />
+        <div className="skeleton-bar" />
+        <div className="skeleton-bar short" />
+        <p className="muted skeleton-note">The assistant is drafting your itinerary…</p>
+      </section>
     </div>
   )
 }
