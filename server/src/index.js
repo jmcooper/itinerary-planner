@@ -11,5 +11,9 @@ const agent = createAiAgent()
 
 createApp(dataDir, { agent }).listen(port, () => {
   console.log(`Itinerary server listening on http://localhost:${port} (data: ${dataDir})`)
-  console.log(agent.enabled ? `AI assistant enabled (${agent.model})` : 'AI assistant disabled (set AI_MODEL + provider key)')
+  console.log(
+    agent.enabled
+      ? 'AI assistant enabled'
+      : 'AI assistant disabled (set ANTHROPIC_API_KEY and/or GEMINI_API_KEY)'
+  )
 })

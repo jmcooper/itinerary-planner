@@ -8,10 +8,15 @@ import { createApp } from '../src/app.js'
 
 // Scripted fake agent: emits text, performs one itinerary write, returns history.
 function fakeAgent() {
-  return {
+  const agent = {
     enabled: true,
-    model: 'fake/model',
-    async respond({ trip, messages, storage, emit }) {
+    lastModel: null,
+    listModels: async () => [
+      { id: 'fake/model', label: 'Fake Model' },
+      { id: 'fake/other', label: 'Other Model' },
+    ],
+    async respond({ model, trip, messages, storage, emit }) {
+      agent.lastModel = model
       emit('text', { text: 'Planning your trip' })
       const fresh = await storage.readTrip(trip.id)
       fresh.name = 'Yellowstone 2026'
@@ -39,25 +44,34 @@ function fakeAgent() {
       return [...messages, { role: 'model', content: [{ text: 'Planning your trip' }] }]
     },
   }
+  return agent
 }
 
 let app
 let dataDir
 let alice
+let agent
 
 before(async () => {
   dataDir = await mkdtemp(path.join(tmpdir(), 'itin-chat-'))
-  app = createApp(dataDir, { agent: fakeAgent() })
+  agent = fakeAgent()
+  app = createApp(dataDir, { agent })
   alice = request.agent(app)
   await alice.post('/api/auth/register').send({ username: 'alice', password: 'correct horse' })
 })
 
 after(async () => rm(dataDir, { recursive: true, force: true }))
 
-test('GET /api/ai/status reports the injected agent', async () => {
+test('GET /api/ai/status reports the injected agent and its models', async () => {
   const res = await request(app).get('/api/ai/status')
   assert.equal(res.status, 200)
-  assert.deepEqual(res.body, { enabled: true, model: 'fake/model' })
+  assert.deepEqual(res.body, {
+    enabled: true,
+    models: [
+      { id: 'fake/model', label: 'Fake Model' },
+      { id: 'fake/other', label: 'Other Model' },
+    ],
+  })
 })
 
 test('POST /api/trips/ai creates a placeholder trip from a description', async () => {
@@ -104,6 +118,21 @@ test('chat rejects an empty message', async () => {
   assert.equal(res.status, 400)
 })
 
+test('chat passes the requested model through and rejects unknown models', async () => {
+  const created = await alice.post('/api/trips/ai').send({ description: 'Model test' })
+  const id = created.body.id
+  const ok = await alice.post(`/api/trips/${id}/chat`).send({ message: 'hi', model: 'fake/other' })
+  assert.equal(ok.status, 200)
+  assert.equal(agent.lastModel, 'fake/other')
+
+  // Defaults to the first available model when none is given
+  await alice.post(`/api/trips/${id}/chat`).send({ message: 'hi again' })
+  assert.equal(agent.lastModel, 'fake/model')
+
+  const bad = await alice.post(`/api/trips/${id}/chat`).send({ message: 'hi', model: 'nope/nope' })
+  assert.equal(bad.status, 400)
+})
+
 test('chat requires edit permission', async () => {
   const created = await alice.post('/api/trips/ai').send({ description: 'Private trip' })
   const id = created.body.id
@@ -122,7 +151,7 @@ test('chat returns 503 when AI is disabled', async () => {
   const res = await casey.post(`/api/trips/${created.body.id}/chat`).send({ message: 'hi' })
   assert.equal(res.status, 503)
   const status = await request(disabledApp).get('/api/ai/status')
-  assert.deepEqual(status.body, { enabled: false, model: null })
+  assert.deepEqual(status.body, { enabled: false, models: [] })
 })
 
 test('deleting a trip removes its chat history file', async () => {

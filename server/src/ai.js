@@ -116,20 +116,57 @@ Rules:
 - If the request is ambiguous or missing dates, ask before inventing details.`
 }
 
-// Returns the agent used by app.js. Disabled (and free of Genkit setup) unless
-// AI_MODEL names a provider whose API key is configured.
-export function createAiAgent(env = process.env) {
-  const model = env.AI_MODEL || null
-  const provider = model?.split('/')[0]
-  const providerReady =
-    (provider === 'anthropic' && env.ANTHROPIC_API_KEY) ||
-    (provider === 'googleai' && env.GEMINI_API_KEY)
-  if (!model || !providerReady) return { enabled: false, model: null, respond: null }
+// Curated fallback used when live model discovery fails (e.g. transient
+// provider API errors). Only models from configured providers are offered.
+const FALLBACK_MODELS = [
+  { id: 'anthropic/claude-opus-4-7', label: 'Claude Opus 4.7' },
+  { id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { id: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+  { id: 'googleai/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  { id: 'googleai/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+]
 
+// Models that can't drive an itinerary chat even if the provider lists them.
+const NON_CHAT_MODEL_RE = /image|tts|audio|embedding|live|veo|imagen/i
+
+// Returns the agent used by app.js. Providers are enabled by supplying their
+// API key in .env; the user picks a model in the app from the providers'
+// live model lists.
+export function createAiAgent(env = process.env) {
+  const providers = []
   const plugins = []
-  if (env.ANTHROPIC_API_KEY) plugins.push(anthropic({ apiKey: env.ANTHROPIC_API_KEY }))
-  if (env.GEMINI_API_KEY) plugins.push(googleAI({ apiKey: env.GEMINI_API_KEY }))
+  if (env.ANTHROPIC_API_KEY) {
+    plugins.push(anthropic({ apiKey: env.ANTHROPIC_API_KEY }))
+    providers.push('anthropic')
+  }
+  if (env.GEMINI_API_KEY) {
+    plugins.push(googleAI({ apiKey: env.GEMINI_API_KEY }))
+    providers.push('googleai')
+  }
+  if (plugins.length === 0) return { enabled: false, listModels: async () => [], respond: null }
+
   const ai = genkit({ plugins })
+
+  let modelsPromise = null
+  function listModels() {
+    modelsPromise ??= (async () => {
+      try {
+        const actions = await ai.registry.listResolvableActions()
+        const models = Object.values(actions)
+          .filter((meta) => meta.actionType === 'model')
+          .filter((meta) => providers.includes(meta.name.split('/')[0]))
+          .filter((meta) => meta.metadata?.model?.supports?.tools)
+          .filter((meta) => !NON_CHAT_MODEL_RE.test(meta.name))
+          .map((meta) => ({ id: meta.name, label: meta.metadata?.model?.label ?? meta.name }))
+          .sort((a, b) => a.id.localeCompare(b.id))
+        if (models.length > 0) return models
+      } catch (err) {
+        console.error('AI model discovery failed, using fallback list:', err.message ?? err)
+      }
+      return FALLBACK_MODELS.filter((m) => providers.includes(m.id.split('/')[0]))
+    })()
+    return modelsPromise
+  }
 
   const updateItinerary = ai.defineTool(
     {
@@ -148,8 +185,8 @@ export function createAiAgent(env = process.env) {
 
   return {
     enabled: true,
-    model,
-    async respond({ trip, messages, storage, emit }) {
+    listModels,
+    async respond({ model, trip, messages, storage, emit }) {
       const { stream, response } = ai.generateStream({
         model,
         system: systemPrompt(trip),

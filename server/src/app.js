@@ -100,9 +100,13 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
 
   // ---- AI ----
 
-  app.get('/api/ai/status', (req, res) => {
-    res.json({ enabled: Boolean(agent.enabled), model: agent.model ?? null })
-  })
+  app.get(
+    '/api/ai/status',
+    wrap(async (req, res) => {
+      if (!agent.enabled) return res.json({ enabled: false, models: [] })
+      res.json({ enabled: true, models: await agent.listModels() })
+    })
+  )
 
   function provisionalName(description) {
     const words = description.trim().split(/\s+/).slice(0, 6).join(' ')
@@ -373,6 +377,11 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
         return res.status(503).json({ error: 'AI is not configured on this server' })
       const message = typeof req.body?.message === 'string' ? req.body.message.trim() : ''
       if (!message) return res.status(400).json({ error: 'message is required' })
+      const models = await agent.listModels()
+      const model =
+        typeof req.body?.model === 'string' && req.body.model ? req.body.model : models[0]?.id
+      if (!models.some((m) => m.id === model))
+        return res.status(400).json({ error: `unknown model: ${model}` })
       if (activeChats.has(trip.id))
         return res.status(409).json({ error: 'a response is already in progress for this trip' })
       activeChats.add(trip.id)
@@ -388,7 +397,7 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
       try {
         const chat = await storage.readChat(trip.id)
         const messages = [...chat.messages, { role: 'user', content: [{ text: message }] }]
-        const updated = await agent.respond({ trip, messages, storage, emit })
+        const updated = await agent.respond({ model, trip, messages, storage, emit })
         await storage.writeChat(trip.id, { messages: updated })
         emit('done', {})
       } catch (err) {
