@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { formatRange } from '../lib/dates.js'
@@ -7,10 +7,7 @@ import { formatRange } from '../lib/dates.js'
 export default function HomePage() {
   const { user } = useAuth()
   const [trips, setTrips] = useState(null)
-  const [name, setName] = useState('')
   const [error, setError] = useState('')
-  const [creating, setCreating] = useState(false)
-  const navigate = useNavigate()
 
   useEffect(() => {
     if (user === undefined) return
@@ -19,20 +16,6 @@ export default function HomePage() {
       .then(setTrips)
       .catch((err) => setError(err.message))
   }, [user])
-
-  async function handleCreate(e) {
-    e.preventDefault()
-    if (!name.trim() || creating) return
-    setCreating(true)
-    setError('')
-    try {
-      const trip = await api.createTrip(name.trim())
-      navigate(`/trips/${trip.id}`)
-    } catch (err) {
-      setError(err.message)
-      setCreating(false)
-    }
-  }
 
   async function handleDelete(trip) {
     if (!window.confirm(`Delete "${trip.name}"? This cannot be undone.`)) return
@@ -50,19 +33,9 @@ export default function HomePage() {
         <h1>Your Trip Itineraries</h1>
         <p className="hero-sub">Plan every day of your next adventure, one stop at a time.</p>
         {user ? (
-          <form className="create-form" onSubmit={handleCreate}>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="New trip name, e.g. Europe 2026"
-              aria-label="New trip name"
-              maxLength={120}
-            />
-            <button type="submit" className="btn btn-primary" disabled={!name.trim() || creating}>
-              {creating ? 'Creating…' : 'Create Trip'}
-            </button>
-          </form>
+          <Link to="/trips/new" className="btn btn-primary">
+            Create Trip
+          </Link>
         ) : (
           user === null && (
             <p className="hero-signin">

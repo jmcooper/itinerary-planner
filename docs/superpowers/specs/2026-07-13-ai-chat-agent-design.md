@@ -24,17 +24,22 @@ Decisions confirmed with the owner:
 
 ## Configuration
 
-`server/.env` (loaded with `dotenv`; `.env` is gitignored, `.env.example` committed):
+`server/.env` (loaded with `dotenv`; `.env` is gitignored, `.env.example` committed)
+holds **provider API keys only**:
 
 | Variable | Meaning |
 |---|---|
-| `AI_MODEL` | Genkit model string, e.g. `anthropic/claude-sonnet-4-6` or `googleai/gemini-2.5-flash` |
 | `ANTHROPIC_API_KEY` | Enables the `@genkit-ai/anthropic` plugin when set |
 | `GEMINI_API_KEY` | Enables the `@genkit-ai/google-genai` plugin when set |
 
-Plugins are registered only when their key is present. If `AI_MODEL` is unset or no
-provider key is available, AI features are **disabled**: AI endpoints return 503 and the
-client hides AI UI (`GET /api/ai/status` reports `{ enabled, model }`).
+Plugins are registered only when their key is present. The **model is chosen in the
+app**: `GET /api/ai/status` reports `{ enabled, models: [{id, label}] }`, where the
+model list is discovered live from each configured provider (filtered to chat-capable,
+tool-supporting models; a curated fallback list is used if discovery fails). Every AI
+dialog (new-trip form, chat panel) offers a model dropdown; the chosen model id is sent
+with each chat request and validated server-side. The last-used model is remembered in
+`localStorage`. If no provider key is configured, AI features are **disabled**: chat
+returns 503 and the client hides AI UI.
 
 ## Data Model
 

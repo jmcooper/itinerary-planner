@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { formatDay } from '../lib/dates.js'
 import { buildDayItems } from '../lib/parse.js'
+import { convertImportItems } from '../lib/time.js'
 import ItineraryRow from './ItineraryRow.jsx'
 import { PencilIcon, TrashIcon } from './icons.jsx'
 
@@ -13,7 +14,10 @@ export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDa
   return (
     <div className="day-view">
       <div className="day-header">
-        <h2 className="day-title">{heading}</h2>
+        <div>
+          <h2 className="day-title">{heading}</h2>
+          <DayTitle title={day.title ?? ''} canEdit={canEdit} onSave={(title) => onSaveDay({ title })} />
+        </div>
         <MapsLink
           mapsUrl={day.mapsUrl ?? ''}
           canEdit={canEdit}
@@ -30,6 +34,66 @@ export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDa
         <DayTable tripId={tripId} items={items} canEdit={canEdit} onSaveItems={onSaveItems} />
       )}
     </div>
+  )
+}
+
+function DayTitle({ title, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  if (editing) {
+    return (
+      <form
+        className="day-subtitle-form"
+        onSubmit={async (e) => {
+          e.preventDefault()
+          setSaving(true)
+          try {
+            await onSave(value.trim())
+            setEditing(false)
+          } finally {
+            setSaving(false)
+          }
+        }}
+      >
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Day title, e.g. West side geysers"
+          aria-label="Day title"
+          autoFocus
+        />
+        <button type="submit" className="btn btn-primary btn-small" disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(false)}>
+          Cancel
+        </button>
+      </form>
+    )
+  }
+
+  if (!title && !canEdit) return null
+  return (
+    <p className="day-subtitle">
+      {title || <span className="muted">No day title</span>}
+      {canEdit && (
+        <button
+          type="button"
+          className="btn-icon"
+          onClick={() => {
+            setValue(title)
+            setEditing(true)
+          }}
+          title="Edit day title"
+          aria-label="Edit day title"
+        >
+          <PencilIcon />
+        </button>
+      )}
+    </p>
   )
 }
 
@@ -143,7 +207,7 @@ function DayImportForm({ onSave }) {
     setWarnings(w)
     setSaving(true)
     try {
-      await onSave(items)
+      await onSave(convertImportItems(items))
     } catch (err) {
       setError(err.message)
       setSaving(false)
@@ -216,7 +280,7 @@ function DayTable({ tripId, items, canEdit, onSaveItems }) {
       <ul className="day-table">
         {items.map((item, index) => (
           <ItineraryRow
-            key={`${index}-${item.code}`}
+            key={`${index}-${item.title}`}
             tripId={tripId}
             item={item}
             canEdit={canEdit}

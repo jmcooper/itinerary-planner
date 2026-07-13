@@ -33,7 +33,7 @@ export function createStorage(dataDir) {
   async function listTrips() {
     await ensureDir()
     const files = (await readdir(dataDir)).filter(
-      (f) => f.endsWith('.json') && !f.endsWith('.images.json')
+      (f) => f.endsWith('.json') && !f.endsWith('.images.json') && !f.endsWith('.chat.json')
     )
     const trips = []
     for (const file of files) {
@@ -52,7 +52,29 @@ export function createStorage(dataDir) {
     if (!trip) return false
     await rm(fileFor(id))
     await rm(imagesFileFor(id), { force: true })
+    await rm(chatFileFor(id), { force: true })
     return true
+  }
+
+  function chatFileFor(id) {
+    return path.join(dataDir, `${id}.chat.json`)
+  }
+
+  async function readChat(tripId) {
+    try {
+      return JSON.parse(await readFile(chatFileFor(tripId), 'utf8'))
+    } catch (err) {
+      if (err.code === 'ENOENT') return { messages: [] }
+      throw err
+    }
+  }
+
+  async function writeChat(tripId, chat) {
+    await ensureDir()
+    const target = chatFileFor(tripId)
+    const tmp = `${target}.${randomBytes(4).toString('hex')}.tmp`
+    await writeFile(tmp, JSON.stringify(chat), 'utf8')
+    await rename(tmp, target)
   }
 
   function imagesFileFor(id) {
@@ -91,5 +113,16 @@ export function createStorage(dataDir) {
     return base ? `${base}-${suffix}` : suffix
   }
 
-  return { readTrip, writeTrip, listTrips, deleteTrip, slugify, readImages, writeImages, newImageId }
+  return {
+    readTrip,
+    writeTrip,
+    listTrips,
+    deleteTrip,
+    slugify,
+    readImages,
+    writeImages,
+    newImageId,
+    readChat,
+    writeChat,
+  }
 }

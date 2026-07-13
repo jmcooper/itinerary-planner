@@ -1,12 +1,45 @@
 # Itinerary Builder
 
-A travel-itinerary builder: create Trip Itineraries (e.g. "Europe 2026"), pick a date
-range, then fill in each day by pasting a CSV of stops plus a markdown details document.
-Days render as an expandable time/plan table with per-stop rendered markdown, editable
-in place.
+A travel-itinerary builder with an integrated AI planning assistant: describe your trip
+("Yellowstone 7/1–7/4, entering from West Yellowstone…") and the assistant names the
+trip, sets the dates, and drafts a day-by-day itinerary you refine in chat ("Let's have
+day 2 end at 3pm"). Every day is also editable by hand, and a manual creation path
+(date pickers + CSV paste) remains available when no AI provider is configured.
 
 - **Frontend**: React + Vite (client-side only), React Router, react-markdown, custom CSS
 - **Backend**: Node Express; trips stored as JSON files in `server/data/` (no database)
+- **AI**: [Genkit](https://genkit.dev) with Anthropic and/or Google AI providers,
+  streaming chat over SSE, itinerary edits applied via a typed `updateItinerary` tool
+
+## AI configuration
+
+Copy `server/.env.example` to `server/.env` and set one or more provider keys:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...   # enables Anthropic (Claude) models
+GEMINI_API_KEY=...             # enables Google AI (Gemini) models
+```
+
+The app discovers each configured provider's chat-capable models at runtime and offers
+them in a model dropdown on the AI dialogs (new-trip form and chat panel); the last-used
+model is remembered per browser. With no keys set, all AI UI hides itself and the app
+behaves like the classic manual builder.
+
+Note: the AI assistant is available to anyone with **edit** access on a trip, and all
+usage bills to the server's API keys.
+
+## Data migration (one-time)
+
+The AI integration changed the on-disk day format from `{time, plan, code, details}`
+rows to time blocks (`{timeStart, timeEnd, title, description, imageIds}`). Migrate
+existing data once before deploying this version:
+
+```sh
+cd server
+node scripts/migrate-days.mjs           # migrates ./data (or pass a data dir)
+```
+
+Originals are backed up to `data/backup-<timestamp>/`; the script is idempotent.
 
 ## Development
 
