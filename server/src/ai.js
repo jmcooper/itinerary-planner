@@ -143,6 +143,48 @@ export function isDatedSnapshot(id) {
   return /-\d{8}$/.test(id)
 }
 
+const PROVIDER_LABELS = { anthropic: 'Anthropic', googleai: 'Google' }
+
+// Version sequence from an id: "claude-opus-4-8" -> [4, 8], "gemini-2.5-flash"
+// -> [2.5]. Used to order newest-first, since discovery metadata has no dates.
+function modelVersion(id) {
+  return (
+    id
+      .split('/')
+      .pop()
+      .split('-')
+      .filter((t) => /^\d+(\.\d+)?$/.test(t))
+      .map(Number)
+  )
+}
+
+// Higher version sorts first; a missing segment counts as older ("4" < "4.1").
+function compareVersionsDesc(a, b) {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const diff = (b[i] ?? -1) - (a[i] ?? -1)
+    if (diff !== 0) return diff
+  }
+  return 0
+}
+
+// Groups models by provider (in the given provider order) and sorts each group
+// newest to oldest; attaches a display name for the provider.
+export function sortModelsForDisplay(models, providers) {
+  return models
+    .map((m) => {
+      const prefix = m.id.split('/')[0]
+      return { ...m, provider: PROVIDER_LABELS[prefix] ?? prefix }
+    })
+    .sort((a, b) => {
+      const providerDiff =
+        providers.indexOf(a.id.split('/')[0]) - providers.indexOf(b.id.split('/')[0])
+      if (providerDiff !== 0) return providerDiff
+      const versionDiff = compareVersionsDesc(modelVersion(a.id), modelVersion(b.id))
+      if (versionDiff !== 0) return versionDiff
+      return a.label.localeCompare(b.label)
+    })
+}
+
 // "anthropic/claude-opus-4-5" -> "Claude Opus 4.5": title-case the words and
 // join consecutive numeric tokens with dots.
 export function prettyModelLabel(id) {
@@ -199,12 +241,14 @@ export function createAiAgent(env = process.env) {
               label: label && label !== meta.name ? label : prettyModelLabel(meta.name),
             }
           })
-          .sort((a, b) => a.id.localeCompare(b.id))
-        if (models.length > 0) return models
+        if (models.length > 0) return sortModelsForDisplay(models, providers)
       } catch (err) {
         console.error('AI model discovery failed, using fallback list:', err.message ?? err)
       }
-      return FALLBACK_MODELS.filter((m) => providers.includes(m.id.split('/')[0]))
+      return sortModelsForDisplay(
+        FALLBACK_MODELS.filter((m) => providers.includes(m.id.split('/')[0])),
+        providers
+      )
     })()
     return modelsPromise
   }

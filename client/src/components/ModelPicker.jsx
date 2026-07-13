@@ -11,6 +11,19 @@ export function rememberModel(id) {
   localStorage.setItem(STORAGE_KEY, id)
 }
 
+// Groups consecutive models sharing a provider (the server sends them grouped,
+// newest first within each group).
+function groupByProvider(models) {
+  const groups = []
+  for (const model of models) {
+    const provider = model.provider ?? 'Models'
+    const last = groups[groups.length - 1]
+    if (last && last.provider === provider) last.models.push(model)
+    else groups.push({ provider, models: [model] })
+  }
+  return groups
+}
+
 export default function ModelPicker({ models, value, onChange, disabled }) {
   if (models.length <= 1) return null
   return (
@@ -25,10 +38,14 @@ export default function ModelPicker({ models, value, onChange, disabled }) {
         disabled={disabled}
         aria-label="AI model"
       >
-        {models.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
+        {groupByProvider(models).map((group) => (
+          <optgroup key={group.provider} label={group.provider}>
+            {group.models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </optgroup>
         ))}
       </select>
     </label>

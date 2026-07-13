@@ -4,7 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createStorage } from '../src/storage.js'
-import { applyItineraryUpdate, prettyModelLabel, isDatedSnapshot } from '../src/ai.js'
+import {
+  applyItineraryUpdate,
+  prettyModelLabel,
+  isDatedSnapshot,
+  sortModelsForDisplay,
+} from '../src/ai.js'
 
 let dataDir
 let storage
@@ -111,4 +116,35 @@ test('isDatedSnapshot detects dated model id variants', () => {
   assert.equal(isDatedSnapshot('anthropic/claude-haiku-4-5-20251001'), true)
   assert.equal(isDatedSnapshot('anthropic/claude-haiku-4-5'), false)
   assert.equal(isDatedSnapshot('googleai/gemini-2.5-flash'), false)
+})
+
+test('sortModelsForDisplay groups by provider and orders newest to oldest', () => {
+  const ids = [
+    'anthropic/claude-opus-4',
+    'googleai/gemini-2.5-flash',
+    'anthropic/claude-opus-4-8',
+    'anthropic/claude-sonnet-5',
+    'googleai/gemini-3.1-pro',
+    'anthropic/claude-opus-4-1',
+    'anthropic/claude-sonnet-4-6',
+  ]
+  const sorted = sortModelsForDisplay(
+    ids.map((id) => ({ id, label: id })),
+    ['anthropic', 'googleai']
+  )
+  assert.deepEqual(
+    sorted.map((m) => m.id),
+    [
+      'anthropic/claude-sonnet-5', // 5 > 4.x
+      'anthropic/claude-opus-4-8',
+      'anthropic/claude-sonnet-4-6',
+      'anthropic/claude-opus-4-1',
+      'anthropic/claude-opus-4', // 4 alone is older than 4.1
+      'googleai/gemini-3.1-pro',
+      'googleai/gemini-2.5-flash',
+    ]
+  )
+  // provider display names attached
+  assert.equal(sorted[0].provider, 'Anthropic')
+  assert.equal(sorted[5].provider, 'Google')
 })
