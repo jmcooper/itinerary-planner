@@ -133,13 +133,16 @@ export default function ChatPanel({
         {pendingUser && <div className="chat-user">{pendingUser}</div>}
         {streamText !== null && (
           <div className="chat-agent">
-            {streamText ? (
+            {streamText && (
               <div className="markdown chat-md">
                 <ReactMarkdown>{streamText}</ReactMarkdown>
               </div>
-            ) : (
-              <span className="chat-thinking">Thinking…</span>
             )}
+            <div className="chat-dots" role="status" aria-label="The assistant is working">
+              <span />
+              <span />
+              <span />
+            </div>
           </div>
         )}
         {error && <p className="error">{error}</p>}
