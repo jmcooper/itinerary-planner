@@ -9,6 +9,7 @@ import {
   prettyModelLabel,
   isDatedSnapshot,
   sortModelsForDisplay,
+  sanitizeChatMessages,
 } from '../src/ai.js'
 
 let dataDir
@@ -103,6 +104,45 @@ test('applyItineraryUpdate rejects bad date and time formats', async () => {
 
 test('applyItineraryUpdate fails for a missing trip', async () => {
   await assert.rejects(() => applyItineraryUpdate(baseInput(), { storage, tripId: 'nope' }), /not found/)
+})
+
+test('sanitizeChatMessages keeps only replayable message parts', () => {
+  const messages = [
+    // The system prompt is rebuilt each turn from trip state — never replayed
+    { role: 'system', content: [{ text: 'You are a travel assistant' }] },
+    { role: 'user', content: [{ text: 'Plan my trip' }] },
+    {
+      role: 'model',
+      content: [
+        // Thinking output with provider-specific metadata (e.g. Gemini
+        // thoughtSignature) is not replayable across turns/providers.
+        { reasoning: '', metadata: { thoughtSignature: 'CAIS...' } },
+        { text: 'Done!', metadata: { extra: true } },
+        { toolRequest: { name: 'updateItinerary', ref: '0', input: { days: [] } } },
+        { custom: { something: 1 } },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [{ toolResponse: { name: 'updateItinerary', ref: '0', output: { ok: true } } }],
+    },
+    // A message left with no replayable parts is dropped entirely
+    { role: 'model', content: [{ reasoning: 'thinking…' }] },
+  ]
+  assert.deepEqual(sanitizeChatMessages(messages), [
+    { role: 'user', content: [{ text: 'Plan my trip' }] },
+    {
+      role: 'model',
+      content: [
+        { text: 'Done!' },
+        { toolRequest: { name: 'updateItinerary', ref: '0', input: { days: [] } } },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [{ toolResponse: { name: 'updateItinerary', ref: '0', output: { ok: true } } }],
+    },
+  ])
 })
 
 test('prettyModelLabel humanizes model ids', () => {

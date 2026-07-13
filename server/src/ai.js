@@ -97,6 +97,31 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
   return { ok: true, savedDays, removedDays }
 }
 
+// Reduces chat history to what every provider can replay: user/model/tool
+// messages with text, toolRequest, and toolResponse parts. Thinking/reasoning
+// parts carry provider-specific metadata (e.g. thought signatures) that other
+// turns — or other models, since the user can switch models mid-chat — reject
+// as unsupported, and the system message is rebuilt fresh each turn from the
+// current trip state, so it must not be persisted either.
+const REPLAYABLE_ROLES = new Set(['user', 'model', 'tool'])
+
+export function sanitizeChatMessages(messages) {
+  return (messages ?? [])
+    .filter((message) => REPLAYABLE_ROLES.has(message.role))
+    .map((message) => ({
+      role: message.role,
+      content: (message.content ?? [])
+        .map((part) => {
+          if (typeof part.text === 'string' && part.text !== '') return { text: part.text }
+          if (part.toolRequest) return { toolRequest: part.toolRequest }
+          if (part.toolResponse) return { toolResponse: part.toolResponse }
+          return null
+        })
+        .filter(Boolean),
+    }))
+    .filter((message) => message.content.length > 0)
+}
+
 function systemPrompt(trip) {
   const dayLines = Object.entries(trip.days ?? {})
     .sort(([a], [b]) => a.localeCompare(b))
@@ -285,7 +310,9 @@ export function createAiAgent(env = process.env) {
       const { stream, response } = ai.generateStream({
         model,
         system: systemPrompt(trip),
-        messages,
+        // Sanitize on the way in too, so histories saved before sanitization
+        // (or by other models) replay cleanly.
+        messages: sanitizeChatMessages(messages),
         tools: [updateItinerary],
         maxTurns: 8,
         context: { storage, tripId: trip.id, emit },
@@ -294,7 +321,7 @@ export function createAiAgent(env = process.env) {
         if (chunk.text) emit('text', { text: chunk.text })
       }
       const final = await response
-      return final.messages
+      return sanitizeChatMessages(final.messages)
     },
   }
 }
