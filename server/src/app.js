@@ -26,7 +26,7 @@ function isOwner(trip, username) {
   return trip.ownerId ? trip.ownerId === username : true
 }
 
-export function createApp(dataDir) {
+export function createApp(dataDir, { agent = { enabled: false, model: null } } = {}) {
   const app = express()
   const storage = createStorage(dataDir)
   const auth = createAuth(dataDir)
@@ -95,6 +95,46 @@ export function createApp(dataDir) {
     auth.requireAuth,
     wrap(async (req, res) => {
       res.json(await auth.listUsernames())
+    })
+  )
+
+  // ---- AI ----
+
+  app.get('/api/ai/status', (req, res) => {
+    res.json({ enabled: Boolean(agent.enabled), model: agent.model ?? null })
+  })
+
+  function provisionalName(description) {
+    const words = description.trim().split(/\s+/).slice(0, 6).join(' ')
+    return words.length > 48 ? `${words.slice(0, 48)}…` : words
+  }
+
+  // Creates a trip shell for the AI flow; the agent fills in name/dates/days
+  // once the client sends the description as the first chat message.
+  app.post(
+    '/api/trips/ai',
+    auth.requireAuth,
+    wrap(async (req, res) => {
+      const description = typeof req.body?.description === 'string' ? req.body.description.trim() : ''
+      if (!description) return res.status(400).json({ error: 'description is required' })
+      const now = new Date().toISOString()
+      const name = provisionalName(description)
+      const trip = {
+        id: storage.slugify(name),
+        name,
+        ownerId: req.username,
+        visibility: 'private',
+        sharedWith: [],
+        startDate: null,
+        endDate: null,
+        summary: '',
+        aiCreated: true,
+        days: {},
+        createdAt: now,
+        updatedAt: now,
+      }
+      await storage.writeTrip(trip)
+      res.status(201).json(withPermissions(trip, req.username))
     })
   )
 
@@ -304,6 +344,60 @@ export function createApp(dataDir) {
       delete images[req.params.imageId]
       await storage.writeImages(trip.id, images)
       res.status(204).end()
+    })
+  )
+
+  // ---- Chat ----
+  // Per-trip AI conversation. Reading and writing both require edit permission
+  // because the conversation drives itinerary edits.
+
+  app.get(
+    '/api/trips/:id/chat',
+    wrap(async (req, res) => {
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      if (!requireEditable(trip, req, res)) return
+      res.json(await storage.readChat(trip.id))
+    })
+  )
+
+  const activeChats = new Set() // trip ids with an in-flight generation
+
+  app.post(
+    '/api/trips/:id/chat',
+    wrap(async (req, res) => {
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      if (!requireEditable(trip, req, res)) return
+      if (!agent.enabled)
+        return res.status(503).json({ error: 'AI is not configured on this server' })
+      const message = typeof req.body?.message === 'string' ? req.body.message.trim() : ''
+      if (!message) return res.status(400).json({ error: 'message is required' })
+      if (activeChats.has(trip.id))
+        return res.status(409).json({ error: 'a response is already in progress for this trip' })
+      activeChats.add(trip.id)
+
+      res.setHeader('Content-Type', 'text/event-stream')
+      res.setHeader('Cache-Control', 'no-cache')
+      res.setHeader('Connection', 'keep-alive')
+      res.flushHeaders?.()
+      const emit = (event, data) => {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data ?? {})}\n\n`)
+      }
+
+      try {
+        const chat = await storage.readChat(trip.id)
+        const messages = [...chat.messages, { role: 'user', content: [{ text: message }] }]
+        const updated = await agent.respond({ trip, messages, storage, emit })
+        await storage.writeChat(trip.id, { messages: updated })
+        emit('done', {})
+      } catch (err) {
+        console.error(err)
+        emit('error', { error: err.message ?? 'generation failed' })
+      } finally {
+        activeChats.delete(trip.id)
+        res.end()
+      }
     })
   )
 
