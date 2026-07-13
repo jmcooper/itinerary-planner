@@ -30,12 +30,12 @@ export const api = {
   getChat: (tripId) => fetchJson(`/api/trips/${tripId}/chat`),
   // POSTs a chat message and parses the SSE response body, invoking
   // onEvent(event, data) per frame. Resolves when the stream ends.
-  streamChat: async (tripId, message, { onEvent }) => {
+  streamChat: async (tripId, message, { model, onEvent }) => {
     const res = await fetch(`/api/trips/${tripId}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, model }),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => null)

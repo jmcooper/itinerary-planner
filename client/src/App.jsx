@@ -1,6 +1,7 @@
 import { Routes, Route, Link, useNavigate } from 'react-router-dom'
 import HomePage from './pages/HomePage.jsx'
 import TripPage from './pages/TripPage.jsx'
+import NewTripPage from './pages/NewTripPage.jsx'
 import SignInPage from './pages/SignInPage.jsx'
 import { AuthProvider, useAuth } from './auth.jsx'
 
@@ -51,6 +52,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/signin" element={<SignInPage />} />
+            <Route path="/trips/new" element={<NewTripPage />} />
             <Route path="/trips/:id" element={<TripPage />} />
             <Route path="*" element={<p className="empty-note">Page not found.</p>} />
           </Routes>
