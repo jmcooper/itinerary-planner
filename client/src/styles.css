@@ -1457,3 +1457,21 @@ label {
   align-items: center;
   gap: 10px;
 }
+
+/* Subtle ghost button with a red border, for destructive-but-considered
+   actions like deleting a day. */
+.btn-danger-outline {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.btn-danger-outline:hover {
+  background: rgba(179, 64, 47, 0.07);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.day-table-footer {
+  gap: 10px;
+}

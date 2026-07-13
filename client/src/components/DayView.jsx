@@ -28,35 +28,43 @@ export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDa
           <h2 className="day-title">{heading}</h2>
           <DayTitle title={day.title ?? ''} canEdit={canEdit} onSave={(title) => onSaveDay({ title })} />
         </div>
-        <div className="day-header-actions">
-          <MapsLink
-            mapsUrl={day.mapsUrl ?? ''}
-            canEdit={canEdit}
-            onSave={(mapsUrl) => onSaveDay({ mapsUrl })}
-          />
-          {canEdit && onDeleteDay && (
-            <button
-              type="button"
-              className="btn-icon btn-icon-danger"
-              onClick={handleDelete}
-              title="Delete this day"
-              aria-label="Delete this day"
-            >
-              <TrashIcon />
-            </button>
-          )}
-        </div>
+        <MapsLink
+          mapsUrl={day.mapsUrl ?? ''}
+          canEdit={canEdit}
+          onSave={(mapsUrl) => onSaveDay({ mapsUrl })}
+        />
       </div>
       {items.length === 0 ? (
         canEdit ? (
-          <DayImportForm onSave={onSaveItems} />
+          <>
+            <DayImportForm onSave={onSaveItems} />
+            {onDeleteDay && (
+              <div className="day-table-footer">
+                <DeleteDayButton onClick={handleDelete} />
+              </div>
+            )}
+          </>
         ) : (
           <p className="empty-note">No itinerary for this day yet.</p>
         )
       ) : (
-        <DayTable tripId={tripId} items={items} canEdit={canEdit} onSaveItems={onSaveItems} />
+        <DayTable
+          tripId={tripId}
+          items={items}
+          canEdit={canEdit}
+          onSaveItems={onSaveItems}
+          onDeleteDay={onDeleteDay ? handleDelete : null}
+        />
       )}
     </div>
+  )
+}
+
+function DeleteDayButton({ onClick }) {
+  return (
+    <button type="button" className="btn btn-ghost btn-danger-outline" onClick={onClick}>
+      Delete Day
+    </button>
   )
 }
 
@@ -279,7 +287,7 @@ function DayImportForm({ onSave }) {
   )
 }
 
-function DayTable({ tripId, items, canEdit, onSaveItems }) {
+function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
   const [error, setError] = useState('')
 
   async function saveItem(index, updated) {
@@ -313,6 +321,7 @@ function DayTable({ tripId, items, canEdit, onSaveItems }) {
       </ul>
       {canEdit && (
         <div className="day-table-footer">
+          {onDeleteDay && <DeleteDayButton onClick={onDeleteDay} />}
           <button type="button" className="btn btn-ghost btn-danger" onClick={handleClearDay}>
             Clear day &amp; re-paste
           </button>
