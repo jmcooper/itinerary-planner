@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { formatRange } from '../lib/dates.js'
+import { CopyIcon } from '../components/icons.jsx'
 
 export default function HomePage() {
   const { user } = useAuth()
@@ -22,6 +23,15 @@ export default function HomePage() {
     try {
       await api.deleteTrip(trip.id)
       setTrips((prev) => ({ ...prev, mine: prev.mine.filter((t) => t.id !== trip.id) }))
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleDuplicate(trip) {
+    try {
+      await api.duplicateTrip(trip.id)
+      setTrips(await api.listTrips()) // reload so the copy's summary matches the server's
     } catch (err) {
       setError(err.message)
     }
@@ -53,7 +63,12 @@ export default function HomePage() {
       ) : (
         <>
           {user && trips.mine.length > 0 && (
-            <TripSection title="My Trips" trips={trips.mine} onDelete={handleDelete} />
+            <TripSection
+              title="My Trips"
+              trips={trips.mine}
+              onDelete={handleDelete}
+              onDuplicate={handleDuplicate}
+            />
           )}
           {user && trips.shared.length > 0 && (
             <TripSection title="Trips Shared with Me" trips={trips.shared} withOwner />
@@ -67,7 +82,7 @@ export default function HomePage() {
   )
 }
 
-function TripSection({ title, trips, onDelete, withOwner }) {
+function TripSection({ title, trips, onDelete, onDuplicate, withOwner }) {
   return (
     <section className="trip-section">
       <h2 className="trip-section-title">{title}</h2>
@@ -83,6 +98,17 @@ function TripSection({ title, trips, onDelete, withOwner }) {
                 )}
               </span>
             </Link>
+            {onDuplicate && (
+              <button
+                type="button"
+                className="btn btn-ghost trip-card-copy"
+                onClick={() => onDuplicate(trip)}
+                aria-label={`Duplicate ${trip.name}`}
+                title="Duplicate trip"
+              >
+                <CopyIcon />
+              </button>
+            )}
             {onDelete && (
               <button
                 type="button"

@@ -201,6 +201,33 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
     })
   )
 
+  // Duplicates a viewable trip into a new private trip owned by the caller.
+  // Days and images are copied; the chat history starts fresh.
+  app.post(
+    '/api/trips/:id/duplicate',
+    auth.requireAuth,
+    wrap(async (req, res) => {
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      const now = new Date().toISOString()
+      const name = `${trip.name} (copy)`
+      const copy = {
+        ...trip,
+        id: storage.slugify(name),
+        name,
+        ownerId: req.username,
+        visibility: 'private',
+        sharedWith: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+      await storage.writeTrip(copy)
+      const images = await storage.readImages(trip.id)
+      if (Object.keys(images).length > 0) await storage.writeImages(copy.id, images)
+      res.status(201).json(withPermissions(copy, req.username))
+    })
+  )
+
   // Non-viewable trips 404 (not 403) so private trip ids are indistinguishable
   // from missing ones.
   async function loadViewableTrip(req, res) {

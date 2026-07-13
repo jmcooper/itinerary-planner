@@ -186,6 +186,41 @@ test('deleting a trip also deletes its images', async () => {
   assert.equal(res.status, 404)
 })
 
+test('POST /api/trips/:id/duplicate copies the trip and its images', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Original' })
+  const id = created.body.id
+  const items = [
+    { timeStart: '08:00', timeEnd: null, timeLabel: null, title: 'Go', description: 'd', imageIds: [] },
+  ]
+  await alice.put(`/api/trips/${id}`).send({ days: { '2026-09-01': { title: 'Day', mapsUrl: '', items } } })
+  const img = await alice.post(`/api/trips/${id}/images`).send({ dataUri: TINY_PNG })
+
+  const res = await alice.post(`/api/trips/${id}/duplicate`)
+  assert.equal(res.status, 201)
+  assert.equal(res.body.name, 'Original (copy)')
+  assert.notEqual(res.body.id, id)
+  assert.equal(res.body.ownerId, 'alice')
+  assert.equal(res.body.visibility, 'private')
+  assert.deepEqual(res.body.sharedWith, [])
+  assert.equal(res.body.days['2026-09-01'].items[0].title, 'Go')
+
+  // Images were copied so imageIds keep resolving on the duplicate
+  const copiedImg = await alice.get(`/api/trips/${res.body.id}/images/${img.body.id}`)
+  assert.equal(copiedImg.status, 200)
+  assert.equal(copiedImg.body.dataUri, TINY_PNG)
+
+  // The copy is independent — editing it leaves the original alone
+  await alice.put(`/api/trips/${res.body.id}`).send({ name: 'Changed Copy' })
+  const original = await alice.get(`/api/trips/${id}`)
+  assert.equal(original.body.name, 'Original')
+})
+
+test('POST /api/trips/:id/duplicate requires auth and a viewable trip', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Private Src' })
+  assert.equal((await request(app).post(`/api/trips/${created.body.id}/duplicate`)).status, 401)
+  assert.equal((await alice.post('/api/trips/nope/duplicate')).status, 404)
+})
+
 test('trip ids are url-safe slugs derived from the name', async () => {
   const created = await alice.post('/api/trips').send({ name: 'Grand Cañón & Back!' })
   assert.match(created.body.id, /^[a-z0-9-]+$/)

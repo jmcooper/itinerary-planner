@@ -1475,3 +1475,15 @@ label {
 .day-table-footer {
   gap: 10px;
 }
+
+/* Duplicate button on trip cards — as quiet as the delete X beside it. */
+.trip-card .trip-card-copy {
+  border: none;
+  line-height: 1;
+  padding: 0.45rem 0.5rem;
+  color: var(--ink-faint);
+}
+
+.trip-card .trip-card-copy:hover {
+  color: var(--primary);
+}

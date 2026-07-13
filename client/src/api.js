@@ -24,6 +24,7 @@ export const api = {
   updateTrip: (id, patch) =>
     fetchJson(`/api/trips/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
   deleteTrip: (id) => fetchJson(`/api/trips/${id}`, { method: 'DELETE' }),
+  duplicateTrip: (id) => fetchJson(`/api/trips/${id}/duplicate`, { method: 'POST' }),
   aiStatus: () => fetchJson('/api/ai/status'),
   createAiTrip: (description) =>
     fetchJson('/api/trips/ai', { method: 'POST', body: JSON.stringify({ description }) }),
