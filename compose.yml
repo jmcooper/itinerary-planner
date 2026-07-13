@@ -18,6 +18,11 @@ services:
     build: ./server
     environment:
       DATA_DIR: /data
+    # AI provider keys (ANTHROPIC_API_KEY / GEMINI_API_KEY); AI features stay
+    # disabled if the file is absent.
+    env_file:
+      - path: ./server/.env
+        required: false
     volumes:
       - ./data:/data
     networks:
