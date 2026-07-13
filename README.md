@@ -28,18 +28,20 @@ behaves like the classic manual builder.
 Note: the AI assistant is available to anyone with **edit** access on a trip, and all
 usage bills to the server's API keys.
 
-## Data migration (one-time)
+## Data migration (automatic)
 
 The AI integration changed the on-disk day format from `{time, plan, code, details}`
-rows to time blocks (`{timeStart, timeEnd, title, description, imageIds}`). Migrate
-existing data once before deploying this version:
+rows to time blocks (`{timeStart, timeEnd, title, description, imageIds}`). The server
+migrates any legacy-format trips **automatically at startup**, before it begins serving
+— originals are backed up to `data/backup-<timestamp>/` first, and the check is
+idempotent (already-migrated data is untouched, no backup created).
+
+To migrate without starting the server (or against another data dir):
 
 ```sh
 cd server
-node scripts/migrate-days.mjs           # migrates ./data (or pass a data dir)
+node scripts/migrate-days.mjs [dataDir]   # defaults to ./data
 ```
-
-Originals are backed up to `data/backup-<timestamp>/`; the script is idempotent.
 
 ## Development
 
