@@ -9,8 +9,12 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@genkit-ai/anthropic": "^0.3.0",
+    "@genkit-ai/google-genai": "^1.39.0",
     "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
     "express": "^4.21.2",
+    "genkit": "^1.39.0",
     "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
