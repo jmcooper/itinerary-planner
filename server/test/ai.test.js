@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createStorage } from '../src/storage.js'
-import { applyItineraryUpdate } from '../src/ai.js'
+import { applyItineraryUpdate, prettyModelLabel, isDatedSnapshot } from '../src/ai.js'
 
 let dataDir
 let storage
@@ -98,4 +98,17 @@ test('applyItineraryUpdate rejects bad date and time formats', async () => {
 
 test('applyItineraryUpdate fails for a missing trip', async () => {
   await assert.rejects(() => applyItineraryUpdate(baseInput(), { storage, tripId: 'nope' }), /not found/)
+})
+
+test('prettyModelLabel humanizes model ids', () => {
+  assert.equal(prettyModelLabel('anthropic/claude-opus-4-5'), 'Claude Opus 4.5')
+  assert.equal(prettyModelLabel('anthropic/claude-sonnet-4-6'), 'Claude Sonnet 4.6')
+  assert.equal(prettyModelLabel('anthropic/claude-opus-4'), 'Claude Opus 4')
+  assert.equal(prettyModelLabel('googleai/gemini-2.5-flash'), 'Gemini 2.5 Flash')
+})
+
+test('isDatedSnapshot detects dated model id variants', () => {
+  assert.equal(isDatedSnapshot('anthropic/claude-haiku-4-5-20251001'), true)
+  assert.equal(isDatedSnapshot('anthropic/claude-haiku-4-5'), false)
+  assert.equal(isDatedSnapshot('googleai/gemini-2.5-flash'), false)
 })

@@ -1,10 +1,19 @@
-// AI agent for itinerary planning, built on Genkit so the model provider is
-// configurable via .env (AI_MODEL + the matching provider API key).
-import 'dotenv/config'
+// AI agent for itinerary planning, built on Genkit so the model providers are
+// configurable via .env API keys.
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import dotenv from 'dotenv'
 import { genkit, z } from 'genkit'
 import { anthropic } from '@genkit-ai/anthropic'
 import { googleAI } from '@genkit-ai/google-genai'
 import { buildMapsUrl } from './timeblocks.js'
+
+// Load .env by explicit path (server/.env, then the repo root) so the keys are
+// found no matter which directory the server is launched from. Real
+// environment variables always take precedence; missing files are ignored.
+const here = path.dirname(fileURLToPath(import.meta.url))
+dotenv.config({ path: path.join(here, '../.env'), quiet: true })
+dotenv.config({ path: path.join(here, '../../.env'), quiet: true })
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -129,6 +138,30 @@ const FALLBACK_MODELS = [
 // Models that can't drive an itinerary chat even if the provider lists them.
 const NON_CHAT_MODEL_RE = /image|tts|audio|embedding|live|veo|imagen/i
 
+// Dated snapshot ids (claude-haiku-4-5-20251001) duplicate their alias — hide them.
+export function isDatedSnapshot(id) {
+  return /-\d{8}$/.test(id)
+}
+
+// "anthropic/claude-opus-4-5" -> "Claude Opus 4.5": title-case the words and
+// join consecutive numeric tokens with dots.
+export function prettyModelLabel(id) {
+  const tokens = id.split('/').pop().split('-')
+  const parts = []
+  for (const token of tokens) {
+    const isNumeric = /^\d+(\.\d+)?$/.test(token)
+    if (isNumeric && parts.length > 0 && parts[parts.length - 1].numeric) {
+      parts[parts.length - 1].text += `.${token}`
+    } else {
+      parts.push({
+        text: isNumeric ? token : token.charAt(0).toUpperCase() + token.slice(1),
+        numeric: isNumeric,
+      })
+    }
+  }
+  return parts.map((p) => p.text).join(' ')
+}
+
 // Returns the agent used by app.js. Providers are enabled by supplying their
 // API key in .env; the user picks a model in the app from the providers'
 // live model lists.
@@ -157,7 +190,15 @@ export function createAiAgent(env = process.env) {
           .filter((meta) => providers.includes(meta.name.split('/')[0]))
           .filter((meta) => meta.metadata?.model?.supports?.tools)
           .filter((meta) => !NON_CHAT_MODEL_RE.test(meta.name))
-          .map((meta) => ({ id: meta.name, label: meta.metadata?.model?.label ?? meta.name }))
+          .filter((meta) => !isDatedSnapshot(meta.name))
+          .map((meta) => {
+            const label = meta.metadata?.model?.label
+            // Plugins often echo the id as the label; prettify in that case.
+            return {
+              id: meta.name,
+              label: label && label !== meta.name ? label : prettyModelLabel(meta.name),
+            }
+          })
           .sort((a, b) => a.id.localeCompare(b.id))
         if (models.length > 0) return models
       } catch (err) {
