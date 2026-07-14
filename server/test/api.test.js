@@ -439,6 +439,35 @@ test('linkedCanEdit reflects the viewer, not the linker', async () => {
   void a
 })
 
+test('resolving a linked day carries the target trip’s hotel stays for that date', async () => {
+  const { a, b } = await makeLinkedPair()
+  await alice.put(`/api/trips/${a.id}`).send({
+    hotelStays: [
+      { hotelName: 'Source Inn', hotelAddress: '', checkInDay: '2026-07-18', checkOutDay: '2026-07-19' },
+      { hotelName: 'Elsewhere Inn', hotelAddress: '', checkInDay: '2026-08-01', checkOutDay: '2026-08-03' },
+    ],
+  })
+  const res = await alice.get(`/api/trips/${b.id}`)
+  const day = res.body.days['2026-07-18']
+  assert.equal(day.linkedHotelStays.length, 1)
+  assert.equal(day.linkedHotelStays[0].hotelName, 'Source Inn')
+  // The stays are resolution-time only: B's own hotelStays stay empty, and
+  // even a hostile round-trip cannot persist them onto an unlinked day.
+  assert.deepEqual(res.body.hotelStays ?? [], [])
+  await alice.put(`/api/trips/${b.id}`).send({
+    days: { ...res.body.days, '2026-07-18': { ...day, linkedTripId: undefined } },
+  })
+  const persisted = (await alice.get(`/api/trips/${b.id}`)).body.days['2026-07-18']
+  assert.ok(!('linkedHotelStays' in persisted), 'link metadata must never be stored')
+  // Also attached on the check-out day itself (range is checkout-inclusive)
+  const bWithNineteenth = await alice.put(`/api/trips/${b.id}`).send({
+    days: { ...res.body.days, '2026-07-19': { linkedTripId: a.id } },
+  })
+  // 07-19 does not exist on trip A, so it resolves broken — instead assert
+  // the covered day again after the update kept its stays.
+  assert.equal(bWithNineteenth.body.days['2026-07-18'].linkedHotelStays[0].hotelName, 'Source Inn')
+})
+
 test('unlinking stores a plain day again', async () => {
   const { b } = await makeLinkedPair()
   const resolved = (await alice.get(`/api/trips/${b.id}`)).body

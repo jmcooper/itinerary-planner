@@ -71,7 +71,7 @@ export default function TripPage() {
     const merged = { ...current, ...patch }
     if (!merged.hotelNotNeeded) delete merged.hotelNotNeeded
     if (current.linkedTripId && !current.linkedBroken) {
-      const { linkedTripId, linkedTripName, linkedCanEdit, linkedBroken, ...content } = merged
+      const { linkedTripId, linkedTripName, linkedCanEdit, linkedBroken, linkedHotelStays, ...content } = merged
       const target = await api.getTrip(current.linkedTripId)
       await api.updateTrip(target.id, { days: { ...target.days, [date]: content } })
       await refreshTrip() // re-resolve the link
@@ -118,6 +118,10 @@ export default function TripPage() {
   // Legacy ownerless trips are public; owned trips default to private.
   const isPublic = trip.ownerId ? trip.visibility === 'public' : true
 
+  // Hotel coverage for a date includes stays from a linked trip's day —
+  // resolution attaches them as linkedHotelStays on the resolved day.
+  const staysFor = (date) => [...hotelStays, ...(trip.days?.[date]?.linkedHotelStays ?? [])]
+
   const itinerary = needsDates ? (
     <AddDaysForm
       onCancel={dates.length > 0 ? () => setEditingDates(false) : null}
@@ -144,11 +148,12 @@ export default function TripPage() {
           {dates.map((date, i) => {
             const { weekday, label } = formatDay(date)
             const hasItems = (trip.days?.[date]?.items?.length ?? 0) > 0
-            const missing = isMissingStay(hotelStays, date) && !trip.days?.[date]?.hotelNotNeeded
+            const dateStays = staysFor(date)
+            const missing = isMissingStay(dateStays, date) && !trip.days?.[date]?.hotelNotNeeded
             // Check-out icons render before check-in icons by design.
             const hotelMarks = [
-              ...checkOutsOn(hotelStays, date).map((stay) => ({ stay, out: true })),
-              ...checkInsOn(hotelStays, date).map((stay) => ({ stay, out: false })),
+              ...checkOutsOn(dateStays, date).map((stay) => ({ stay, out: true })),
+              ...checkInsOn(dateStays, date).map((stay) => ({ stay, out: false })),
             ]
             return (
               <li key={date} className="day-nav-li">
@@ -196,9 +201,9 @@ export default function TripPage() {
             dayIndex={dates.indexOf(selectedDate)}
             canEdit={canEdit}
             day={trip.days?.[selectedDate] ?? {}}
-            checkInStays={checkInsOn(hotelStays, selectedDate)}
-            checkOutStays={checkOutsOn(hotelStays, selectedDate)}
-            missingStay={isMissingStay(hotelStays, selectedDate)}
+            checkInStays={checkInsOn(staysFor(selectedDate), selectedDate)}
+            checkOutStays={checkOutsOn(staysFor(selectedDate), selectedDate)}
+            missingStay={isMissingStay(staysFor(selectedDate), selectedDate)}
             onOpenStay={(stay) => setHotelModal({ type: 'stay', stay })}
             onAddStay={() => setHotelModal({ type: 'add', prefillCheckIn: selectedDate })}
             onSetHotelNotNeeded={(flag) => setHotelNotNeeded(selectedDate, flag)}

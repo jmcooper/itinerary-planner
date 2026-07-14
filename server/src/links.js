@@ -10,8 +10,15 @@ export function isLinkedDay(day) {
 
 // PUT payloads round-trip resolved days (which carry the target's content
 // plus link metadata); storing only the marker keeps the data single-source.
+// Plain days are also scrubbed of resolution metadata (linkedHotelStays and
+// friends) so hotel data from a linked trip can never be persisted here.
 export function normalizeLinkedDay(day) {
-  return isLinkedDay(day) ? { linkedTripId: String(day.linkedTripId) } : day
+  if (isLinkedDay(day)) return { linkedTripId: String(day.linkedTripId) }
+  if (day && typeof day === 'object') {
+    const { linkedTripName, linkedCanEdit, linkedBroken, linkedHotelStays, ...clean } = day
+    return clean
+  }
+  return day
 }
 
 // Shape-only validation: deeper checks (target exists, has the date, isn't
@@ -51,11 +58,19 @@ export async function resolveTripDays(trip, { storage, username }) {
       }
       continue
     }
+    // Hotel stays are trip-level, so the target's stays touching this date
+    // ride along — otherwise the linking trip would think the night is
+    // uncovered and hide the check-in/check-out icons. The range is
+    // inclusive of checkOutDay so check-out-day icons resolve too.
+    const linkedHotelStays = (target.hotelStays ?? []).filter(
+      (stay) => stay.checkInDay <= date && date <= stay.checkOutDay
+    )
     days[date] = {
       ...targetDay,
       linkedTripId: day.linkedTripId,
       linkedTripName: target.name,
       linkedCanEdit: canEdit(target, username),
+      ...(linkedHotelStays.length ? { linkedHotelStays } : {}),
     }
   }
   return { ...trip, days }
