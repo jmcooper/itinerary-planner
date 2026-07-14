@@ -1855,6 +1855,11 @@ label {
   margin: 0 0 1rem;
 }
 
+.hotel-stay-source {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
 .hotel-stay-form {
   display: flex;
   flex-direction: column;

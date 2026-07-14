@@ -91,6 +91,9 @@ function StayInfo({ stay }) {
       <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
       <ConfirmationNumber value={stay.confirmationNumber} />
       <StayAddress address={stay.hotelAddress} />
+      {stay.linkedTripName && (
+        <p className="muted hotel-stay-source">From “{stay.linkedTripName}” via a linked day</p>
+      )}
     </>
   )
 }
@@ -168,6 +171,7 @@ function StayForm({ initial, onSubmit, onCancel, hint = null }) {
 // replacement array (stays live at the trip level).
 export function HotelStaysModal({
   stays,
+  linkedStays = [], // read-only: owned by trips linked from here
   canEdit,
   onSave,
   onClose,
@@ -178,7 +182,11 @@ export function HotelStaysModal({
   // null = list view; -1 = adding; >= 0 = editing that index
   const [editing, setEditing] = useState(initialAdd ? -1 : null)
   const [error, setError] = useState('')
-  const sorted = [...stays].map((stay, index) => ({ stay, index }))
+  // Own stays are editable (index refers into `stays`); linked ones are not.
+  const sorted = [
+    ...stays.map((stay, index) => ({ stay, index })),
+    ...linkedStays.map((stay) => ({ stay, index: null })),
+  ]
   sorted.sort((a, b) => a.stay.checkInDay.localeCompare(b.stay.checkInDay))
 
   async function save(next) {
@@ -224,12 +232,12 @@ export function HotelStaysModal({
             </p>
           )}
           <ul className="hotel-stay-list">
-            {sorted.map(({ stay, index }) => (
-              <li key={index} className="hotel-stay-card">
+            {sorted.map(({ stay, index }, i) => (
+              <li key={index ?? `linked-${i}`} className="hotel-stay-card">
                 <div className="hotel-stay-info">
                   <StayInfo stay={stay} />
                 </div>
-                {canEdit && (
+                {canEdit && index !== null && (
                   <div className="hotel-stay-actions">
                     <button
                       type="button"

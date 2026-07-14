@@ -61,10 +61,11 @@ export async function resolveTripDays(trip, { storage, username }) {
     // Hotel stays are trip-level, so the target's stays touching this date
     // ride along — otherwise the linking trip would think the night is
     // uncovered and hide the check-in/check-out icons. The range is
-    // inclusive of checkOutDay so check-out-day icons resolve too.
-    const linkedHotelStays = (target.hotelStays ?? []).filter(
-      (stay) => stay.checkInDay <= date && date <= stay.checkOutDay
-    )
+    // inclusive of checkOutDay so check-out-day icons resolve too. Each stay
+    // is tagged with its source trip's name so the client can label it.
+    const linkedHotelStays = (target.hotelStays ?? [])
+      .filter((stay) => stay.checkInDay <= date && date <= stay.checkOutDay)
+      .map((stay) => ({ ...stay, linkedTripName: target.name }))
     days[date] = {
       ...targetDay,
       linkedTripId: day.linkedTripId,

@@ -451,6 +451,7 @@ test('resolving a linked day carries the target trip’s hotel stays for that da
   const day = res.body.days['2026-07-18']
   assert.equal(day.linkedHotelStays.length, 1)
   assert.equal(day.linkedHotelStays[0].hotelName, 'Source Inn')
+  assert.match(day.linkedHotelStays[0].linkedTripName, /^Target /)
   // The stays are resolution-time only: B's own hotelStays stay empty, and
   // even a hostile round-trip cannot persist them onto an unlinked day.
   assert.deepEqual(res.body.hotelStays ?? [], [])
