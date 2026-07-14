@@ -128,9 +128,9 @@ export function ItemEditForm({ item, onSave, onCancel, extraActions = null }) {
         Details (markdown)
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={10} spellCheck={false} />
       </label>
-      <label className="item-edit-travel">
+      <label className="item-edit-travel" title="Shows as a compact connector between events">
         <input type="checkbox" checked={travel} onChange={(e) => setTravel(e.target.checked)} />
-        Travel time — shows as a compact connector between events
+        Travel time
       </label>
       {error && <p className="error">{error}</p>}
       <div className="form-actions">

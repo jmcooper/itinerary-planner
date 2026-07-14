@@ -1627,6 +1627,7 @@ label {
 
 .item-edit-travel {
   display: flex;
+  flex-direction: row; /* the global label rule stacks into a column */
   align-items: center;
   gap: 8px;
   font-size: 0.88rem;
