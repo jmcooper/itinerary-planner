@@ -419,8 +419,8 @@ label {
 }
 
 .day-nav-dot.filled {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--success);
+  border-color: var(--success);
 }
 
 /* Day panel (right side) */
@@ -1818,11 +1818,14 @@ label {
   position: relative;
 }
 
+/* Sits in the tile's dot column, just left of the itinerary-added dot */
 .day-nav-hotel-icons {
   position: absolute;
-  top: 4px;
-  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  right: 28px;
   display: flex;
+  align-items: center;
   gap: 2px;
 }
 

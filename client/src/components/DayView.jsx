@@ -56,7 +56,7 @@ export default function DayView({
                 aria-label={`${out ? 'Check out of' : 'Check in to'} ${stay.hotelName}`}
                 onClick={() => onOpenStay?.(stay)}
               >
-                {out ? <CheckOutIcon size={20} /> : <CheckInIcon size={20} />}
+                {out ? <CheckOutIcon size={25} /> : <CheckInIcon size={25} />}
               </button>
             ))}
           </div>
