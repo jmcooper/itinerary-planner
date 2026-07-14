@@ -1592,6 +1592,13 @@ label {
   color: var(--primary);
 }
 
+/* Trips listed in the delete-a-linked-trip dialog */
+.linked-delete-list {
+  margin: 0.4rem 0 0.8rem;
+  padding-left: 1.4rem;
+  font-weight: 600;
+}
+
 /* Archived trips: quiet reveal link at the bottom of the home page */
 .archived-toggle-row {
   text-align: center;

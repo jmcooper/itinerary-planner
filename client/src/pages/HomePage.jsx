@@ -87,13 +87,18 @@ export default function HomePage() {
       {linkedDelete && (
         <Modal title={`Delete "${linkedDelete.trip.name}"?`} onClose={() => setLinkedDelete(null)}>
           <p>
-            Days of this trip are linked from{' '}
-            {linkedDelete.linkers.map((n) => `“${n}”`).join(', ')}. Deleting it would leave{' '}
-            {linkedDelete.linkers.length > 1 ? 'those trips' : 'that trip'} without those days.
+            {linkedDelete.linkers.length > 1 ? 'These trips link' : 'This trip links'} days to
+            “{linkedDelete.trip.name}”:
           </p>
-          <p className="muted">
-            “Copy Details and Delete” copies this trip’s itinerary into the corresponding days of
-            the linking trip{linkedDelete.linkers.length > 1 ? 's' : ''} before deleting.
+          <ul className="linked-delete-list">
+            {linkedDelete.linkers.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
+          <p>
+            Deleting it would leave {linkedDelete.linkers.length > 1 ? 'those trips' : 'that trip'}{' '}
+            without those days. Would you like to copy the data from this trip to the linked trip
+            {linkedDelete.linkers.length > 1 ? 's' : ''}?
           </p>
           <div className="form-actions">
             <button type="button" className="btn btn-primary" onClick={handleCopyAndDelete}>
