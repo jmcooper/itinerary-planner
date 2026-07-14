@@ -6,7 +6,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@genkit-ai/anthropic": "^0.3.0",
@@ -15,7 +16,8 @@
     "dotenv": "^17.4.2",
     "express": "^4.21.2",
     "genkit": "^1.39.0",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "patch-package": "^8.0.1"
   },
   "devDependencies": {
     "supertest": "^7.1.0"

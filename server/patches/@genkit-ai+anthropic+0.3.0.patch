@@ -1,0 +1,52 @@
+diff --git a/node_modules/@genkit-ai/anthropic/lib/runner/beta.js b/node_modules/@genkit-ai/anthropic/lib/runner/beta.js
+index 55c1dee..8b551c0 100644
+--- a/node_modules/@genkit-ai/anthropic/lib/runner/beta.js
++++ b/node_modules/@genkit-ai/anthropic/lib/runner/beta.js
+@@ -72,7 +72,7 @@ class BetaRunner extends import_base.BaseRunner {
+    * tool_use (client tool request), tool_result (client tool response).
+    */
+   toAnthropicMessageContent(part) {
+-    if (part.reasoning) {
++    if (part.reasoning || (typeof part.reasoning === "string" && this.getThinkingSignature(part))) {
+       const signature = this.getThinkingSignature(part);
+       if (!signature) {
+         throw new Error(
+diff --git a/node_modules/@genkit-ai/anthropic/lib/runner/beta.mjs b/node_modules/@genkit-ai/anthropic/lib/runner/beta.mjs
+index 0f40c23..6f34947 100644
+--- a/node_modules/@genkit-ai/anthropic/lib/runner/beta.mjs
++++ b/node_modules/@genkit-ai/anthropic/lib/runner/beta.mjs
+@@ -62,7 +62,7 @@ class BetaRunner extends BaseRunner {
+    * tool_use (client tool request), tool_result (client tool response).
+    */
+   toAnthropicMessageContent(part) {
+-    if (part.reasoning) {
++    if (part.reasoning || (typeof part.reasoning === "string" && this.getThinkingSignature(part))) {
+       const signature = this.getThinkingSignature(part);
+       if (!signature) {
+         throw new Error(
+diff --git a/node_modules/@genkit-ai/anthropic/lib/runner/stable.js b/node_modules/@genkit-ai/anthropic/lib/runner/stable.js
+index defe344..23bf4ba 100644
+--- a/node_modules/@genkit-ai/anthropic/lib/runner/stable.js
++++ b/node_modules/@genkit-ai/anthropic/lib/runner/stable.js
+@@ -31,7 +31,7 @@ class Runner extends import_base.BaseRunner {
+     super(params);
+   }
+   toAnthropicMessageContent(part) {
+-    if (part.reasoning) {
++    if (part.reasoning || (typeof part.reasoning === "string" && this.getThinkingSignature(part))) {
+       const signature = this.getThinkingSignature(part);
+       if (!signature) {
+         throw new Error(
+diff --git a/node_modules/@genkit-ai/anthropic/lib/runner/stable.mjs b/node_modules/@genkit-ai/anthropic/lib/runner/stable.mjs
+index 74c4ad7..130961f 100644
+--- a/node_modules/@genkit-ai/anthropic/lib/runner/stable.mjs
++++ b/node_modules/@genkit-ai/anthropic/lib/runner/stable.mjs
+@@ -20,7 +20,7 @@ class Runner extends BaseRunner {
+     super(params);
+   }
+   toAnthropicMessageContent(part) {
+-    if (part.reasoning) {
++    if (part.reasoning || (typeof part.reasoning === "string" && this.getThinkingSignature(part))) {
+       const signature = this.getThinkingSignature(part);
+       if (!signature) {
+         throw new Error(
