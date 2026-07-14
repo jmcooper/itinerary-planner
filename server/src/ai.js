@@ -64,6 +64,23 @@ const itineraryUpdateSchema = z.object({
 export async function applyItineraryUpdate(input, { storage, tripId }) {
   const trip = await storage.readTrip(tripId)
   if (!trip) throw new Error(`trip ${tripId} not found`)
+  // A call with no fields must fail loudly (but not throw — Genkit aborts the
+  // whole turn on tool errors) so the model corrects itself instead of
+  // believing an empty update succeeded.
+  if (
+    !input.tripName &&
+    typeof input.summary !== 'string' &&
+    !(input.days ?? []).length &&
+    !(input.removeDates ?? []).length
+  ) {
+    return {
+      ok: false,
+      savedDays: [],
+      removedDays: [],
+      error:
+        'No changes received — provide days (full replacement of each listed day), removeDates, tripName, and/or summary.',
+    }
+  }
   for (const day of input.days ?? []) {
     if (!DATE_RE.test(day.date)) throw new Error(`invalid day date: ${day.date} — use YYYY-MM-DD`)
     for (const item of day.items) {
@@ -137,33 +154,35 @@ export function sanitizeChatMessages(messages) {
 
 // Replaying every historical updateItinerary payload is the dominant token
 // cost of a conversation, and the current trip state supersedes them anyway.
-// When sending history to the model, swap old tool inputs for a short
-// description of what the call did; the stored history keeps everything for
-// display. Refs are preserved so tool responses still pair up.
+// When sending history to the model, each old tool call/response pair becomes
+// a plain-text note describing what it did — NOT a stubbed tool call, because
+// models imitate prior tool-call shapes and a placeholder input teaches them
+// to send empty updates. The stored history keeps everything for display.
 export function compactHistoryForModel(messages) {
-  return (messages ?? []).map((message) => ({
-    ...message,
-    content: message.content.map((part) => {
-      const req = part.toolRequest
-      if (!req || req.name !== 'updateItinerary') return part
-      const input = req.input ?? {}
-      const actions = []
-      if (input.tripName) actions.push(`renamed the trip to "${input.tripName}"`)
-      if (typeof input.summary === 'string') actions.push('updated the trip summary')
-      const dates = (input.days ?? []).map((d) => d.date)
-      if (dates.length) actions.push(`replaced days: ${dates.join(', ')}`)
-      if (input.removeDates?.length) actions.push(`removed days: ${input.removeDates.join(', ')}`)
-      return {
-        toolRequest: {
-          ...req,
-          input: {
-            compacted: actions.join('; ') || 'no changes',
-            note: 'Superseded by the current trip state.',
-          },
-        },
-      }
-    }),
-  }))
+  const compactedRefs = new Set()
+  return (messages ?? [])
+    .map((message) => ({
+      ...message,
+      content: message.content
+        .map((part) => {
+          if (part.toolRequest?.name === 'updateItinerary') {
+            compactedRefs.add(part.toolRequest.ref)
+            const input = part.toolRequest.input ?? {}
+            const actions = []
+            if (input.tripName) actions.push(`renamed the trip to "${input.tripName}"`)
+            if (typeof input.summary === 'string') actions.push('updated the trip summary')
+            const dates = (input.days ?? []).map((d) => d.date)
+            if (dates.length) actions.push(`replaced days: ${dates.join(', ')}`)
+            if (input.removeDates?.length)
+              actions.push(`removed days: ${input.removeDates.join(', ')}`)
+            return { text: `[Applied itinerary update — ${actions.join('; ') || 'no changes'}]` }
+          }
+          if (part.toolResponse && compactedRefs.has(part.toolResponse.ref)) return null
+          return part
+        })
+        .filter(Boolean),
+    }))
+    .filter((message) => message.content.length > 0)
 }
 
 // Exported for tests.
@@ -203,6 +222,7 @@ ${Object.keys(days).length ? JSON.stringify(days, null, 1) : '(no days yet)'}
 Rules:
 - Whenever you create or change the itinerary, call the updateItinerary tool. Never describe an itinerary as saved unless the tool call succeeded.
 - Batch changes: one updateItinerary call can (and should) carry every affected day in its days array. Do not make a separate call per day.
+- Tool calls must always contain the complete, real field values. The chat history may show past updates as compacted placeholder notes — never imitate those; every new call needs full content.
 - Extract the trip name and the dates for each day from the user's description when creating a new itinerary.
 - To delete days (e.g. "drop day 2", "cut the last day"), pass their dates in removeDates. Days may be non-contiguous — deleting a middle day leaves a gap.
 - For each day, provide ordered waypoints (real place names, including where the day starts and ends) so the app can build a Google Maps link.
@@ -352,6 +372,7 @@ export function createAiAgent(env = process.env) {
         ok: z.boolean(),
         savedDays: z.array(z.string()),
         removedDays: z.array(z.string()),
+        error: z.string().optional(),
       }),
     },
     async (input, { context }) => {

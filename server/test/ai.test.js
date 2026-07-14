@@ -86,6 +86,21 @@ test('applyItineraryUpdate writes days, name, summary, maps link', async () => {
   assert.deepEqual(day.items[2].imageIds, [])
 })
 
+test('applyItineraryUpdate rejects a no-op call with guidance instead of silent success', async () => {
+  await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
+  const before = await storage.readTrip('yellowstone')
+
+  const result = await applyItineraryUpdate({}, { storage, tripId: 'yellowstone' })
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.savedDays, [])
+  assert.deepEqual(result.removedDays, [])
+  assert.match(result.error, /No changes received/)
+  assert.match(result.error, /days/)
+
+  const after = await storage.readTrip('yellowstone')
+  assert.equal(after.updatedAt, before.updatedAt) // nothing written
+})
+
 test('applyItineraryUpdate applies partial updates (summary only)', async () => {
   await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
   const before = await storage.readTrip('yellowstone')
@@ -179,7 +194,7 @@ test('sanitizeChatMessages keeps only replayable message parts', () => {
   ])
 })
 
-test('compactHistoryForModel stubs out old tool payloads but keeps the dialogue', () => {
+test('compactHistoryForModel replaces old tool pairs with text notes', () => {
   const bigDay = {
     date: '2026-07-01',
     title: 'Geysers',
@@ -212,24 +227,27 @@ test('compactHistoryForModel stubs out old tool payloads but keeps the dialogue'
 
   const compacted = compactHistoryForModel(messages)
 
-  // Dialogue text is untouched
+  // No tool parts survive — the model gets no tool-call shape to imitate
+  const parts = compacted.flatMap((m) => m.content)
+  assert.ok(parts.every((p) => !p.toolRequest && !p.toolResponse))
+
+  // Dialogue text is untouched; the tool pair became a text note in the model turn
   assert.deepEqual(compacted[0], messages[0])
   assert.deepEqual(compacted[1].content[0], { text: 'Here is the plan.' })
-  assert.deepEqual(compacted[3], messages[3])
+  const note = compacted[1].content[1].text
+  assert.match(note, /2026-07-01/)
+  assert.match(note, /2026-07-05/)
+  assert.match(note, /renamed the trip to "Yellowstone"/)
+  assert.ok(note.length < 250, `note should be small, got ${note.length}`)
+  assert.ok(!note.includes('xxxxx'), 'day content must not be replayed')
 
-  // The bulky tool input is replaced with a compact description
-  const stub = compacted[1].content[1].toolRequest
-  assert.equal(stub.name, 'updateItinerary')
-  assert.equal(stub.ref, '0') // ref preserved so the tool response still pairs up
-  const stubText = JSON.stringify(stub.input)
-  assert.ok(stubText.length < 250, `stub should be small, got ${stubText.length}`)
-  assert.match(stubText, /2026-07-01/)
-  assert.match(stubText, /2026-07-05/)
-  assert.ok(!stubText.includes('xxxxx'), 'day content must not be replayed')
+  // The orphaned tool-role message is dropped entirely; later turns keep their place
+  assert.equal(compacted.length, 3)
+  assert.deepEqual(compacted[2], messages[3])
 
-  // Tool responses pass through (already tiny) and inputs are not mutated in place
-  assert.deepEqual(compacted[2], messages[2])
-  assert.ok(messages[1].content[1].toolRequest.input.days[0].items[0].description.length === 500)
+  // Stored messages are not mutated in place
+  assert.equal(messages[1].content[1].toolRequest.input.days[0].items[0].description.length, 500)
+  assert.equal(messages.length, 4)
 })
 
 test('systemPrompt embeds the full current itinerary details', () => {
