@@ -388,6 +388,57 @@ export function createApp(
       if (!req.username) return res.status(401).json({ error: 'authentication required' })
       if (!isOwner(trip, req.username))
         return res.status(403).json({ error: 'only the owner can delete this trip' })
+
+      // Other trips may link days to this one. A plain delete would leave
+      // them with broken links, so it is refused; ?copyLinks=1 materializes
+      // this trip's content into the linking trips first.
+      const linkers = await findLinkingTrips(trip.id, storage)
+      if (linkers.length > 0 && req.query.copyLinks !== '1')
+        return res.status(409).json({
+          error: `Days of this trip are linked from ${linkers.map((t) => `"${t.name}"`).join(', ')}. Copy the itinerary details to those trips and delete, or cancel.`,
+          linkers: linkers.map((t) => t.name),
+        })
+      if (linkers.length > 0) {
+        const sourceImages = await storage.readImages(trip.id)
+        for (const linker of linkers) {
+          const usedImageIds = []
+          for (const [date, day] of Object.entries(linker.days ?? {})) {
+            if (day?.linkedTripId !== trip.id) continue
+            const sourceDay = trip.days?.[date]
+            linker.days[date] = sourceDay
+              ? structuredClone(sourceDay)
+              : { title: '', mapsUrl: '', items: [] }
+            for (const item of linker.days[date].items ?? [])
+              usedImageIds.push(...(item.imageIds ?? []))
+            // The day's hotel coverage came from this trip too — keep it.
+            for (const stay of trip.hotelStays ?? []) {
+              if (!(stay.checkInDay <= date && date <= stay.checkOutDay)) continue
+              linker.hotelStays = linker.hotelStays ?? []
+              const exists = linker.hotelStays.some(
+                (s) =>
+                  s.hotelName === stay.hotelName &&
+                  s.checkInDay === stay.checkInDay &&
+                  s.checkOutDay === stay.checkOutDay
+              )
+              if (!exists) linker.hotelStays.push({ ...stay })
+            }
+          }
+          if (usedImageIds.length > 0) {
+            const linkerImages = await storage.readImages(linker.id)
+            let imagesChanged = false
+            for (const imageId of usedImageIds) {
+              if (sourceImages[imageId] && !linkerImages[imageId]) {
+                linkerImages[imageId] = sourceImages[imageId]
+                imagesChanged = true
+              }
+            }
+            if (imagesChanged) await storage.writeImages(linker.id, linkerImages)
+          }
+          linker.updatedAt = new Date().toISOString()
+          await storage.writeTrip(linker)
+        }
+      }
+
       await storage.deleteTrip(trip.id)
       res.status(204).end()
     })

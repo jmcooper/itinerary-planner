@@ -4,11 +4,15 @@ import { api } from '../api.js'
 import { useAuth } from '../auth.jsx'
 import { formatRange } from '../lib/dates.js'
 import { CopyIcon } from '../components/icons.jsx'
+import Modal from '../components/Modal.jsx'
 
 export default function HomePage() {
   const { user } = useAuth()
   const [trips, setTrips] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
+  // Set when deleting a trip that other trips link days to:
+  // { trip, linkers: [names] }
+  const [linkedDelete, setLinkedDelete] = useState(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -25,6 +29,20 @@ export default function HomePage() {
       await api.deleteTrip(trip.id)
       setTrips((prev) => ({ ...prev, mine: prev.mine.filter((t) => t.id !== trip.id) }))
     } catch (err) {
+      // Other trips link days to this one — offer to materialize first.
+      if (err.status === 409 && err.body?.linkers) setLinkedDelete({ trip, linkers: err.body.linkers })
+      else setError(err.message)
+    }
+  }
+
+  async function handleCopyAndDelete() {
+    const { trip } = linkedDelete
+    try {
+      await api.deleteTrip(trip.id, { copyLinks: true })
+      setTrips(await api.listTrips())
+      setLinkedDelete(null)
+    } catch (err) {
+      setLinkedDelete(null)
       setError(err.message)
     }
   }
@@ -65,6 +83,28 @@ export default function HomePage() {
         )}
         {error && <p className="error">{error}</p>}
       </section>
+
+      {linkedDelete && (
+        <Modal title={`Delete "${linkedDelete.trip.name}"?`} onClose={() => setLinkedDelete(null)}>
+          <p>
+            Days of this trip are linked from{' '}
+            {linkedDelete.linkers.map((n) => `“${n}”`).join(', ')}. Deleting it would leave{' '}
+            {linkedDelete.linkers.length > 1 ? 'those trips' : 'that trip'} without those days.
+          </p>
+          <p className="muted">
+            “Copy Details and Delete” copies this trip’s itinerary into the corresponding days of
+            the linking trip{linkedDelete.linkers.length > 1 ? 's' : ''} before deleting.
+          </p>
+          <div className="form-actions">
+            <button type="button" className="btn btn-primary" onClick={handleCopyAndDelete}>
+              Copy Details and Delete
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setLinkedDelete(null)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {trips === null ? (
         <p className="empty-note">Loading trips…</p>

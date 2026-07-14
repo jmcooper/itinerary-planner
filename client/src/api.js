@@ -6,7 +6,12 @@ async function fetchJson(url, options = {}) {
   })
   if (res.status === 204) return null
   const body = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`)
+  if (!res.ok) {
+    const error = new Error(body?.error ?? `Request failed (${res.status})`)
+    error.status = res.status
+    error.body = body
+    throw error
+  }
   return body
 }
 
@@ -23,7 +28,11 @@ export const api = {
   getTrip: (id) => fetchJson(`/api/trips/${id}`),
   updateTrip: (id, patch) =>
     fetchJson(`/api/trips/${id}`, { method: 'PUT', body: JSON.stringify(patch) }),
-  deleteTrip: (id) => fetchJson(`/api/trips/${id}`, { method: 'DELETE' }),
+  // copyLinks: materialize this trip's content into the trips that link to
+  // its days before deleting (server refuses a plain delete with a 409 when
+  // such links exist).
+  deleteTrip: (id, { copyLinks = false } = {}) =>
+    fetchJson(`/api/trips/${id}${copyLinks ? '?copyLinks=1' : ''}`, { method: 'DELETE' }),
   duplicateTrip: (id) => fetchJson(`/api/trips/${id}/duplicate`, { method: 'POST' }),
   aiStatus: () => fetchJson('/api/ai/status'),
   createAiTrip: (description) =>

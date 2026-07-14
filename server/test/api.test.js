@@ -404,9 +404,14 @@ test('PUT rejects malformed links', async () => {
   assert.equal(bad.status, 400)
 })
 
-test('a deleted target resolves as a broken link, not an error', async () => {
-  const { a, b } = await makeLinkedPair()
-  await alice.delete(`/api/trips/${a.id}`)
+test('a missing target resolves as a broken link, not an error', async () => {
+  const { b } = await makeLinkedPair()
+  // Deleting a linked-to trip is refused, so point the marker at a trip that
+  // never existed — the same broken state a bad import could produce.
+  const days = (await alice.get(`/api/trips/${b.id}`)).body.days
+  await alice
+    .put(`/api/trips/${b.id}`)
+    .send({ days: { ...days, '2026-07-18': { linkedTripId: 'never-existed' } } })
   const res = await alice.get(`/api/trips/${b.id}`)
   const day = res.body.days['2026-07-18']
   assert.equal(day.linkedBroken, true)
@@ -521,6 +526,48 @@ test('unlinking removes the guard on the source trip', async () => {
     .send({ days: { ...bDays, '2026-07-18': { title: '', mapsUrl: '', items: [] } } })
   const allowed = await alice.put(`/api/trips/${a.id}`).send({ visibility: 'private' })
   assert.equal(allowed.status, 200)
+})
+
+test('deleting a linked-to trip is refused with the linking trip names', async () => {
+  const { a, b } = await makeLinkedPair()
+  const res = await alice.delete(`/api/trips/${a.id}`)
+  assert.equal(res.status, 409)
+  assert.match(res.body.error, /Linker /)
+  assert.deepEqual(
+    res.body.linkers.map((n) => n.split(' ')[0]),
+    ['Linker']
+  )
+  assert.equal((await alice.get(`/api/trips/${a.id}`)).status, 200) // still there
+  void b
+})
+
+test('copyLinks delete materializes linked days into the linking trips', async () => {
+  const { a, b } = await makeLinkedPair()
+  await alice.put(`/api/trips/${a.id}`).send({
+    hotelStays: [
+      { hotelName: 'Copy Inn', hotelAddress: '', checkInDay: '2026-07-18', checkOutDay: '2026-07-19' },
+    ],
+  })
+  // Give the source day an image so materialization must carry it over
+  const img = await alice.post(`/api/trips/${a.id}/images`).send({ dataUri: TINY_PNG })
+  const aFull = (await alice.get(`/api/trips/${a.id}`)).body
+  aFull.days['2026-07-18'].items[0].imageIds = [img.body.id]
+  await alice.put(`/api/trips/${a.id}`).send({ days: aFull.days })
+
+  const res = await alice.delete(`/api/trips/${a.id}?copyLinks=1`)
+  assert.equal(res.status, 204)
+  assert.equal((await alice.get(`/api/trips/${a.id}`)).status, 404) // gone
+
+  const bAfter = (await alice.get(`/api/trips/${b.id}`)).body
+  const day = bAfter.days['2026-07-18']
+  assert.ok(!day.linkedTripId, 'marker replaced by real content')
+  assert.equal(day.title, 'A day')
+  assert.equal(day.items[0].title, 'Shared stop')
+  assert.deepEqual(day.items[0].imageIds, [img.body.id])
+  assert.equal(bAfter.hotelStays[0].hotelName, 'Copy Inn')
+  // The referenced image was copied into the linker's image store
+  const copied = await alice.get(`/api/trips/${b.id}/images/${img.body.id}`)
+  assert.equal(copied.status, 200)
 })
 
 test('unlinking stores a plain day again', async () => {
