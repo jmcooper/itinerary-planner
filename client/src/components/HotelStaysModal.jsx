@@ -34,17 +34,33 @@ function CopyButton({ text, label }) {
 
 // showEmpty renders a muted placeholder when there's no number on file —
 // used in the detail modal so its absence is explicit, not a mystery.
+// The whole pill is a button: clicking anywhere on it copies the number.
 function ConfirmationNumber({ value, showEmpty = false }) {
+  const [copied, setCopied] = useState(false)
   if (!value) {
     return showEmpty ? <p className="muted hotel-stay-no-conf">No confirmation # on file.</p> : null
   }
   return (
     <div className="hotel-stay-conf-row">
-      <div className="hotel-stay-conf-pill">
+      <button
+        type="button"
+        className="hotel-stay-conf-pill"
+        title="Copy confirmation number"
+        aria-label={`Copy confirmation number ${value}`}
+        onClick={() => {
+          navigator.clipboard?.writeText(value)
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        }}
+      >
         <span className="hotel-stay-conf-label">Confirmation #</span>
-        <span className="hotel-stay-conf">{value}</span>
-      </div>
-      <CopyButton text={value} label="Copy confirmation number" />
+        <span className="hotel-stay-conf">
+          {value}
+          <span className="hotel-stay-conf-copy" aria-hidden="true">
+            {copied ? '✓' : <CopyIcon />}
+          </span>
+        </span>
+      </button>
     </div>
   )
 }

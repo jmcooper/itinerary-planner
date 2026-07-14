@@ -1757,12 +1757,22 @@ label {
   margin: 0.2rem 0;
 }
 
-/* The pill: a darker labeled header strip above the number */
+/* The pill: a darker labeled header strip above the number. The whole pill
+   is a button — clicking anywhere on it copies the number. */
 .hotel-stay-conf-pill {
   display: inline-flex;
   flex-direction: column;
   border-radius: 8px;
   overflow: hidden;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: center;
+}
+
+.hotel-stay-conf-pill:hover .hotel-stay-conf {
+  background: color-mix(in srgb, var(--primary) 10%, var(--primary-soft));
 }
 
 .hotel-stay-conf-label {
@@ -1777,13 +1787,22 @@ label {
 
 /* Big and unmistakable — this is what you read out at the front desk. */
 .hotel-stay-conf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
   font-family: Consolas, 'Courier New', monospace;
   font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   background: var(--primary-soft);
   padding: 0.12rem 0.6rem;
-  text-align: center;
+  transition: background 0.12s ease;
+}
+
+.hotel-stay-conf-copy {
+  display: inline-flex;
+  color: var(--ink-soft);
 }
 
 .hotel-stay-address-row {
