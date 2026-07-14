@@ -83,10 +83,73 @@ export default function TripPage() {
   // The day-level "no hotel needed this night" flag rides inside the day entry.
   const setHotelNotNeeded = (date, flag) => saveDay(date, { hotelNotNeeded: flag })
 
+  const linkedTripIds = [
+    ...new Set(
+      Object.values(trip?.days ?? {})
+        .map((d) => d.linkedTripId)
+        .filter(Boolean)
+    ),
+  ]
+
+  // Grants the given users / public visibility on a linked trip so everyone
+  // who can see this trip can see the days it links to. Only the owner of
+  // the linked trip can change its sharing; others are skipped.
+  async function propagateSharing(targetTripId, { users = [], makePublic = false }) {
+    try {
+      const target = await api.getTrip(targetTripId)
+      if (!target.isOwner) return
+      const patch = {}
+      if (makePublic && target.visibility !== 'public') patch.visibility = 'public'
+      const missing = users.filter(
+        (u) => u !== target.ownerId && !(target.sharedWith ?? []).includes(u)
+      )
+      if (missing.length) patch.sharedWith = [...(target.sharedWith ?? []), ...missing]
+      if (Object.keys(patch).length) await api.updateTrip(targetTripId, patch)
+    } catch {
+      // a linked trip we can't read or update keeps its own sharing
+    }
+  }
+
+  // Wraps saveTrip for the settings panel: sharing changes extend to linked
+  // trips (after a confirmation) so shared viewers can see the linked days.
+  async function saveTripSharingAware(patch) {
+    const addedUsers = (patch.sharedWith ?? []).filter(
+      (u) => !(trip.sharedWith ?? []).includes(u)
+    )
+    const goingPublic = patch.visibility === 'public' && trip.visibility !== 'public'
+    if (linkedTripIds.length > 0 && (addedUsers.length > 0 || goingPublic)) {
+      const message = goingPublic
+        ? 'Days in this trip are linked to other itineraries. Making this trip public will also make those itineraries public. Continue?'
+        : 'Days in this trip are linked to other itineraries. Those itineraries will also be shared with the selected user. Continue?'
+      if (!window.confirm(message)) return trip
+      const updated = await saveTrip(patch)
+      for (const id of linkedTripIds) {
+        await propagateSharing(id, { users: addedUsers, makePublic: goingPublic })
+      }
+      return updated
+    }
+    return saveTrip(patch)
+  }
+
   // Linking stores only a marker; unlinking restores a plain empty day (the
-  // linked trip keeps its itinerary either way).
-  const linkDay = (date, targetTripId) =>
-    saveTrip({ days: { ...trip.days, [date]: { linkedTripId: targetTripId } } })
+  // linked trip keeps its itinerary either way). If this trip is already
+  // shared or public, the newly linked trip is shared the same way (after a
+  // confirmation) so viewers of this trip can see the linked day.
+  async function linkDay(date, targetTripId) {
+    const sharedUsers = trip.sharedWith ?? []
+    const isPublicTrip = trip.visibility === 'public'
+    if (sharedUsers.length > 0 || isPublicTrip) {
+      const message = isPublicTrip
+        ? 'This trip is public. The itinerary you link to will be made public as well. Continue?'
+        : 'This trip is shared. The itinerary you link to will be shared with the same people. Continue?'
+      if (!window.confirm(message)) return false
+    }
+    await saveTrip({ days: { ...trip.days, [date]: { linkedTripId: targetTripId } } })
+    if (sharedUsers.length > 0 || isPublicTrip) {
+      await propagateSharing(targetTripId, { users: sharedUsers, makePublic: isPublicTrip })
+    }
+    return true
+  }
   const unlinkDay = (date) =>
     saveTrip({ days: { ...trip.days, [date]: { title: '', mapsUrl: '', items: [] } } })
 
@@ -275,7 +338,7 @@ export default function TripPage() {
       </div>
 
       {trip.isOwner && settingsOpen && (
-        <SharePanel trip={trip} onSave={saveTrip} onClose={() => setSettingsOpen(false)} />
+        <SharePanel trip={trip} onSave={saveTripSharingAware} onClose={() => setSettingsOpen(false)} />
       )}
 
       {(hotelModal?.type === 'list' || hotelModal?.type === 'add') && (

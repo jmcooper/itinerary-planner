@@ -117,8 +117,11 @@ export default function DayView({
             tripId={tripId}
             date={date}
             onLink={async (targetId) => {
-              await onLinkDay(targetId)
-              setLinking(false)
+              // onLinkDay returns false when the user cancels the sharing
+              // confirmation — keep the form open in that case.
+              const ok = await onLinkDay(targetId)
+              if (ok !== false) setLinking(false)
+              return ok
             }}
             onCancel={() => setLinking(false)}
           />
@@ -578,7 +581,8 @@ function LinkDayForm({ tripId, date, onLink, onCancel }) {
     setSaving(true)
     setError('')
     try {
-      await onLink(selected)
+      const ok = await onLink(selected)
+      if (ok === false) setSaving(false) // cancelled at the confirmation
     } catch (err) {
       setError(err.message)
       setSaving(false)
