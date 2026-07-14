@@ -431,6 +431,9 @@ label {
   box-shadow: var(--shadow);
   padding: 1.4rem 1.6rem;
   min-height: 300px;
+  /* Grid items default to min-width:auto; without this, wide content (e.g.
+     the item edit form) expands the 1fr column under the chat panel. */
+  min-width: 0;
 }
 
 .day-header {
@@ -878,11 +881,22 @@ label {
 
 .item-edit-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.8rem;
 }
 
+.item-edit-row label {
+  flex: 0 1 8rem;
+  min-width: 0;
+}
+
+.item-edit-row input {
+  width: 100%;
+  min-width: 0;
+}
+
 .item-edit-row .grow {
-  flex: 1;
+  flex: 1 1 14rem;
 }
 
 .day-table-footer {
