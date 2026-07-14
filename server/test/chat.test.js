@@ -151,6 +151,64 @@ test('chat returns 503 when AI is disabled', async () => {
   assert.deepEqual(status.body, { enabled: false, models: [] })
 })
 
+test('GET /api/trips/:id/chat reports pending while a response is in flight', async () => {
+  let release
+  const gate = new Promise((resolve) => (release = resolve))
+  const slowAgent = {
+    enabled: true,
+    listModels: async () => [{ id: 'fake/model', label: 'Fake Model' }],
+    async respond({ messages, emit }) {
+      emit('text', { text: 'working' })
+      await gate
+      return [...messages, { role: 'model', content: [{ text: 'done' }] }]
+    },
+  }
+  const slowApp = createApp(dataDir, { agent: slowAgent })
+  const dana = request.agent(slowApp)
+  await dana.post('/api/auth/register').send({ username: 'dana', password: 'correct horse' })
+  const created = await dana.post('/api/trips/ai').send({ description: 'Slow trip' })
+  const id = created.body.id
+
+  const inFlight = dana.post(`/api/trips/${id}/chat`).send({ message: 'take your time' }).then((r) => r)
+  await new Promise((r) => setTimeout(r, 100)) // let the handler start
+
+  const during = await dana.get(`/api/trips/${id}/chat`)
+  assert.equal(during.body.pending, true)
+  const blocked = await dana.post(`/api/trips/${id}/chat`).send({ message: 'me too' })
+  assert.equal(blocked.status, 409)
+
+  release()
+  const first = await inFlight
+  assert.equal(first.status, 200)
+  const after = await dana.get(`/api/trips/${id}/chat`)
+  assert.equal(after.body.pending, false)
+  assert.equal(after.body.messages.length, 2)
+})
+
+test('a hung generation times out, frees the lock, and reports an error', async () => {
+  const hungAgent = {
+    enabled: true,
+    listModels: async () => [{ id: 'fake/model', label: 'Fake Model' }],
+    respond: () => new Promise(() => {}), // never settles
+  }
+  const hungApp = createApp(dataDir, { agent: hungAgent, chatTimeoutMs: 60 })
+  const erin = request.agent(hungApp)
+  await erin.post('/api/auth/register').send({ username: 'erin', password: 'correct horse' })
+  const created = await erin.post('/api/trips/ai').send({ description: 'Hung trip' })
+  const id = created.body.id
+
+  const res = await erin.post(`/api/trips/${id}/chat`).send({ message: 'hello' })
+  assert.equal(res.status, 200)
+  assert.match(res.text, /event: error/)
+  assert.match(res.text, /took too long/)
+
+  // Lock is released: pending is false and a new request is accepted
+  const status = await erin.get(`/api/trips/${id}/chat`)
+  assert.equal(status.body.pending, false)
+  const retry = await erin.post(`/api/trips/${id}/chat`).send({ message: 'retry' })
+  assert.equal(retry.status, 200)
+})
+
 test('deleting a trip removes its chat history file', async () => {
   const created = await alice.post('/api/trips/ai').send({ description: 'Short trip' })
   const id = created.body.id

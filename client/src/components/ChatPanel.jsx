@@ -46,20 +46,46 @@ export default function ChatPanel({
   const [draft, setDraft] = useState('')
   const [model, setModel] = useState(initialModel || preferredModel(models))
   const [streamText, setStreamText] = useState(null) // null = idle
+  // True when a response started elsewhere (e.g. before navigating away) is
+  // still being generated server-side; we show progress and poll for it.
+  const [remotePending, setRemotePending] = useState(false)
   const [pendingUser, setPendingUser] = useState(null)
   const [error, setError] = useState('')
   const sentInitial = useRef(false)
   const scrollRef = useRef(null)
+  const busy = streamText !== null || remotePending
 
   useEffect(() => {
     api
       .getChat(tripId)
-      .then((c) => setMessages(c.messages))
+      .then((c) => {
+        setMessages(c.messages)
+        setRemotePending(Boolean(c.pending))
+      })
       .catch((err) => setError(err.message))
   }, [tripId])
 
   useEffect(() => {
-    if (messages && messages.length === 0 && initialPrompt && !sentInitial.current) {
+    if (!remotePending) return undefined
+    onBusyChange?.(true)
+    const poll = setInterval(async () => {
+      try {
+        const c = await api.getChat(tripId)
+        if (!c.pending) {
+          setMessages(c.messages)
+          setRemotePending(false)
+          onBusyChange?.(false)
+          onTripChanged()
+        }
+      } catch {
+        // transient poll failures are fine; the next tick retries
+      }
+    }, 2000)
+    return () => clearInterval(poll)
+  }, [remotePending, tripId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (messages && messages.length === 0 && !remotePending && initialPrompt && !sentInitial.current) {
       sentInitial.current = true
       send(initialPrompt)
     }
@@ -67,7 +93,7 @@ export default function ChatPanel({
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
-  }, [messages, streamText, pendingUser])
+  }, [messages, streamText, pendingUser, remotePending])
 
   async function send(text) {
     setError('')
@@ -98,7 +124,7 @@ export default function ChatPanel({
   function handleSubmit(e) {
     e.preventDefault()
     const text = draft.trim()
-    if (!text || streamText !== null) return
+    if (!text || busy) return
     setDraft('')
     send(text)
   }
@@ -107,12 +133,12 @@ export default function ChatPanel({
     <section className="chat-panel" aria-label="Trip assistant">
       <div className="chat-header">
         <h2 className="chat-title">Assistant</h2>
-        <ModelPicker models={models} value={model} onChange={setModel} disabled={streamText !== null} />
+        <ModelPicker models={models} value={model} onChange={setModel} disabled={busy} />
       </div>
       <div className="chat-history" ref={scrollRef}>
         {messages === null ? (
           <p className="muted">Loading conversation…</p>
-        ) : messages.length === 0 && !pendingUser && streamText === null ? (
+        ) : messages.length === 0 && !pendingUser && !busy ? (
           <p className="muted chat-empty">
             Ask the assistant to plan or change this trip — e.g. “Add a relaxed food-focused day in
             Florence on the 12th.”
@@ -131,7 +157,7 @@ export default function ChatPanel({
           )
         )}
         {pendingUser && <div className="chat-user">{pendingUser}</div>}
-        {streamText !== null && (
+        {busy && (
           <div className="chat-agent">
             {streamText && (
               <div className="markdown chat-md">
@@ -160,12 +186,12 @@ export default function ChatPanel({
           placeholder="Ask for changes, e.g. “Let’s have day 2 end at 3pm”"
           aria-label="Message the assistant"
           rows={2}
-          disabled={streamText !== null}
+          disabled={busy}
         />
         <button
           type="submit"
           className="btn btn-primary btn-small"
-          disabled={!draft.trim() || streamText !== null}
+          disabled={!draft.trim() || busy}
         >
           Send
         </button>

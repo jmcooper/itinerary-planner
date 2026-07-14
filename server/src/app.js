@@ -26,7 +26,15 @@ function isOwner(trip, username) {
   return trip.ownerId ? trip.ownerId === username : true
 }
 
-export function createApp(dataDir, { agent = { enabled: false, model: null } } = {}) {
+export function createApp(
+  dataDir,
+  {
+    agent = { enabled: false, model: null },
+    // Hard ceiling on one chat generation; a hung provider call must not lock
+    // the trip's chat forever.
+    chatTimeoutMs = Number(process.env.AI_CHAT_TIMEOUT_MS ?? 5 * 60_000),
+  } = {}
+) {
   const app = express()
   const storage = createStorage(dataDir)
   const auth = createAuth(dataDir)
@@ -375,17 +383,20 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
   // Per-trip AI conversation. Reading and writing both require edit permission
   // because the conversation drives itinerary edits.
 
+  const activeChats = new Set() // trip ids with an in-flight generation
+
   app.get(
     '/api/trips/:id/chat',
     wrap(async (req, res) => {
       const trip = await loadViewableTrip(req, res)
       if (!trip) return
       if (!requireEditable(trip, req, res)) return
-      res.json(await storage.readChat(trip.id))
+      const chat = await storage.readChat(trip.id)
+      // pending lets the client show progress (and poll) when the user returns
+      // to a trip whose response is still being generated.
+      res.json({ ...chat, pending: activeChats.has(trip.id) })
     })
   )
-
-  const activeChats = new Set() // trip ids with an in-flight generation
 
   app.post(
     '/api/trips/:id/chat',
@@ -403,7 +414,9 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
       if (!models.some((m) => m.id === model))
         return res.status(400).json({ error: `unknown model: ${model}` })
       if (activeChats.has(trip.id))
-        return res.status(409).json({ error: 'a response is already in progress for this trip' })
+        return res
+          .status(409)
+          .json({ error: 'The assistant is still working on this trip — wait for it to finish.' })
       activeChats.add(trip.id)
 
       res.setHeader('Content-Type', 'text/event-stream')
@@ -414,16 +427,27 @@ export function createApp(dataDir, { agent = { enabled: false, model: null } } =
         res.write(`event: ${event}\ndata: ${JSON.stringify(data ?? {})}\n\n`)
       }
 
+      let timer
       try {
         const chat = await storage.readChat(trip.id)
         const messages = [...chat.messages, { role: 'user', content: [{ text: message }] }]
-        const updated = await agent.respond({ model, trip, messages, storage, emit })
+        const timeout = new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error('the assistant took too long to respond — please try again')),
+            chatTimeoutMs
+          )
+        })
+        const updated = await Promise.race([
+          agent.respond({ model, trip, messages, storage, emit }),
+          timeout,
+        ])
         await storage.writeChat(trip.id, { messages: updated })
         emit('done', {})
       } catch (err) {
         console.error(err)
         emit('error', { error: err.message ?? 'generation failed' })
       } finally {
+        clearTimeout(timer)
         activeChats.delete(trip.id)
         res.end()
       }
