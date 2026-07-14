@@ -1184,6 +1184,18 @@ label {
   display: flex;
   gap: 24px;
   align-items: flex-start;
+  margin-top: 1.5rem;
+}
+
+/* The columns wrapper owns the gap below the header, so the itinerary keeps
+   no top margin of its own — the chat panel's natural (scrolled-to-top)
+   position then lines up with the day boxes beside it. */
+.trip-main > .trip-body {
+  margin-top: 0;
+}
+
+.trip-main > .date-range-form {
+  margin-top: 0;
 }
 
 .trip-main {
@@ -1376,7 +1388,6 @@ label {
 
 .trip-summary {
   color: var(--ink-soft);
-  max-width: 62ch;
   margin: 6px 0 0;
 }
 
