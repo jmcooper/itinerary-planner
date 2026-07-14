@@ -40,8 +40,10 @@ function ConfirmationNumber({ value, showEmpty = false }) {
   }
   return (
     <div className="hotel-stay-conf-row">
-      <span className="hotel-stay-conf-label">Confirmation #</span>
-      <span className="hotel-stay-conf">{value}</span>
+      <div className="hotel-stay-conf-pill">
+        <span className="hotel-stay-conf-label">Confirmation #</span>
+        <span className="hotel-stay-conf">{value}</span>
+      </div>
       <CopyButton text={value} label="Copy confirmation number" />
     </div>
   )

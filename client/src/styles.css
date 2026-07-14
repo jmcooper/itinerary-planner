@@ -1730,11 +1730,25 @@ label {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+  margin: 0.2rem 0;
+}
+
+/* The pill: a darker labeled header strip above the number */
+.hotel-stay-conf-pill {
+  display: inline-flex;
+  flex-direction: column;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .hotel-stay-conf-label {
-  color: var(--ink-soft);
-  font-size: 0.85rem;
+  background: color-mix(in srgb, var(--primary) 16%, var(--primary-soft));
+  color: var(--primary-dark);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.12rem 0.6rem;
+  text-align: center;
 }
 
 /* Big and unmistakable — this is what you read out at the front desk. */
@@ -1744,8 +1758,8 @@ label {
   font-weight: 700;
   letter-spacing: 0.06em;
   background: var(--primary-soft);
-  border-radius: 6px;
-  padding: 0.1rem 0.45rem;
+  padding: 0.12rem 0.6rem;
+  text-align: center;
 }
 
 .hotel-stay-address-row {
