@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createStorage } from './storage.js'
 import { createAuth, USERNAME_RE, MIN_PASSWORD_LENGTH } from './auth.js'
+import { normalizeHotelStays } from './hotels.js'
 
 // Slugs that would collide with app routes ("/trips/new") or API routes.
 const RESERVED_SLUGS = new Set(['new', 'ai'])
@@ -28,6 +29,7 @@ function isOwner(trip, username) {
   if (!username) return false
   return trip.ownerId ? trip.ownerId === username : true
 }
+
 
 export function createApp(
   dataDir,
@@ -347,6 +349,11 @@ export function createApp(
         if (Object.keys(body.days).some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d)))
           return res.status(400).json({ error: 'days keys must be YYYY-MM-DD dates' })
         trip.days = body.days
+      }
+      if ('hotelStays' in body) {
+        const { stays, error } = normalizeHotelStays(body.hotelStays)
+        if (error) return res.status(400).json({ error })
+        trip.hotelStays = stays
       }
       trip.updatedAt = new Date().toISOString()
       await storage.writeTrip(trip)

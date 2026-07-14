@@ -3,13 +3,33 @@ import { formatDay } from '../lib/dates.js'
 import { buildDayItems } from '../lib/parse.js'
 import { convertImportItems } from '../lib/time.js'
 import ItineraryRow from './ItineraryRow.jsx'
-import { PencilIcon, TrashIcon } from './icons.jsx'
+import { PencilIcon, TrashIcon, CheckInIcon, CheckOutIcon } from './icons.jsx'
 
-export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDay, onDeleteDay }) {
+export default function DayView({
+  tripId,
+  date,
+  dayIndex,
+  day,
+  canEdit,
+  onSaveDay,
+  onDeleteDay,
+  checkInStays = [],
+  checkOutStays = [],
+  missingStay = false,
+  onOpenStay,
+  onAddStay,
+  onSetHotelNotNeeded,
+}) {
   const { weekday, label, year } = formatDay(date)
   const heading = `Day ${dayIndex + 1} — ${weekday}, ${label}, ${year}`
   const items = day.items ?? []
   const onSaveItems = (nextItems) => onSaveDay({ items: nextItems })
+  const needsHotel = missingStay && !day.hotelNotNeeded
+  // Check-out icons render before check-in icons by design.
+  const hotelMarks = [
+    ...checkOutStays.map((stay) => ({ stay, out: true })),
+    ...checkInStays.map((stay) => ({ stay, out: false })),
+  ]
 
   function handleDelete() {
     if (
@@ -25,7 +45,21 @@ export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDa
     <div className="day-view">
       <div className="day-header">
         <div>
-          <h2 className="day-title">{heading}</h2>
+          <div className="day-title-row">
+            <h2 className={`day-title${needsHotel ? ' missing-stay' : ''}`}>{heading}</h2>
+            {hotelMarks.map(({ stay, out }, i) => (
+              <button
+                key={i}
+                type="button"
+                className={`btn-icon day-hotel-icon ${out ? 'hotel-icon-checkout' : 'hotel-icon-checkin'}`}
+                title={`${out ? 'Check out of' : 'Check in to'} ${stay.hotelName}`}
+                aria-label={`${out ? 'Check out of' : 'Check in to'} ${stay.hotelName}`}
+                onClick={() => onOpenStay?.(stay)}
+              >
+                {out ? <CheckOutIcon size={20} /> : <CheckInIcon size={20} />}
+              </button>
+            ))}
+          </div>
           <DayTitle title={day.title ?? ''} canEdit={canEdit} onSave={(title) => onSaveDay({ title })} />
         </div>
         <MapsLink
@@ -34,6 +68,34 @@ export default function DayView({ tripId, date, dayIndex, day, canEdit, onSaveDa
           onSave={(mapsUrl) => onSaveDay({ mapsUrl })}
         />
       </div>
+      {needsHotel ? (
+        <div className="hotel-warning">
+          <span>No hotel stay covers this night.</span>
+          {canEdit && (
+            <span className="hotel-warning-actions">
+              <button type="button" className="btn btn-ghost btn-small" onClick={onAddStay}>
+                Add hotel stay
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-small"
+                onClick={() => onSetHotelNotNeeded?.(true)}
+              >
+                Hotel stay not needed this day
+              </button>
+            </span>
+          )}
+        </div>
+      ) : day.hotelNotNeeded ? (
+        <p className="hotel-not-needed-note muted">
+          No hotel needed this night.
+          {canEdit && (
+            <button type="button" className="btn btn-link" onClick={() => onSetHotelNotNeeded?.(false)}>
+              Undo
+            </button>
+          )}
+        </p>
+      ) : null}
       {items.length === 0 ? (
         canEdit ? (
           <>

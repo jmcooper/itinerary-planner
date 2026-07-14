@@ -5,7 +5,9 @@ import { listDates, listTripDates, formatDay, formatRange } from '../lib/dates.j
 import DayView from '../components/DayView.jsx'
 import SharePanel from '../components/SharePanel.jsx'
 import ChatPanel from '../components/ChatPanel.jsx'
-import { GearIcon } from '../components/icons.jsx'
+import { HotelStaysModal, HotelStayDetail } from '../components/HotelStaysModal.jsx'
+import { GearIcon, CheckInIcon, CheckOutIcon } from '../components/icons.jsx'
+import { checkInsOn, checkOutsOn, isMissingStay } from '../lib/hotels.js'
 
 export default function TripPage() {
   const { id } = useParams()
@@ -19,6 +21,8 @@ export default function TripPage() {
   const [selectedDate, setSelectedDate] = useState(null)
   const [editingDates, setEditingDates] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // null | {type:'list'} | {type:'add', prefillCheckIn} | {type:'stay', stay}
+  const [hotelModal, setHotelModal] = useState(null)
   const [mobileView, setMobileView] = useState(initialPrompt ? 'chat' : 'itinerary')
   const [chatBusy, setChatBusy] = useState(Boolean(initialPrompt))
 
@@ -59,6 +63,14 @@ export default function TripPage() {
     }
   }
 
+  // The day-level "no hotel needed this night" flag rides inside the day entry.
+  async function setHotelNotNeeded(date, flag) {
+    const day = { ...(trip.days?.[date] ?? {}) }
+    if (flag) day.hotelNotNeeded = true
+    else delete day.hotelNotNeeded
+    await saveTrip({ days: { ...trip.days, [date]: day } })
+  }
+
   // Removes a day entirely; remaining days keep their dates (gaps are fine).
   async function deleteDay(date) {
     const { [date]: _removed, ...remainingDays } = trip.days ?? {}
@@ -80,6 +92,7 @@ export default function TripPage() {
 
   const dates = listTripDates(trip)
   const canEdit = trip.canEdit ?? false
+  const hotelStays = trip.hotelStays ?? []
   const showChat = ai.enabled && canEdit
   const awaitingFirstItinerary = showChat && chatBusy && dates.length === 0
   const needsDates = canEdit && !awaitingFirstItinerary && (dates.length === 0 || editingDates)
@@ -112,11 +125,17 @@ export default function TripPage() {
           {dates.map((date, i) => {
             const { weekday, label } = formatDay(date)
             const hasItems = (trip.days?.[date]?.items?.length ?? 0) > 0
+            const missing = isMissingStay(hotelStays, date) && !trip.days?.[date]?.hotelNotNeeded
+            // Check-out icons render before check-in icons by design.
+            const hotelMarks = [
+              ...checkOutsOn(hotelStays, date).map((stay) => ({ stay, out: true })),
+              ...checkInsOn(hotelStays, date).map((stay) => ({ stay, out: false })),
+            ]
             return (
-              <li key={date}>
+              <li key={date} className="day-nav-li">
                 <button
                   type="button"
-                  className={`day-nav-item${date === selectedDate ? ' selected' : ''}`}
+                  className={`day-nav-item${date === selectedDate ? ' selected' : ''}${missing ? ' missing-stay' : ''}`}
                   onClick={() => setSelectedDate(date)}
                 >
                   <span className="day-nav-num">Day {i + 1}</span>
@@ -128,6 +147,22 @@ export default function TripPage() {
                     title={hasItems ? 'Itinerary added' : 'No itinerary yet'}
                   />
                 </button>
+                {hotelMarks.length > 0 && (
+                  <span className="day-nav-hotel-icons">
+                    {hotelMarks.map(({ stay, out }, j) => (
+                      <button
+                        key={j}
+                        type="button"
+                        className={`day-nav-hotel-icon ${out ? 'hotel-icon-checkout' : 'hotel-icon-checkin'}`}
+                        title={`${out ? 'Check out of' : 'Check in to'} ${stay.hotelName}`}
+                        aria-label={`${out ? 'Check out of' : 'Check in to'} ${stay.hotelName}`}
+                        onClick={() => setHotelModal({ type: 'stay', stay })}
+                      >
+                        {out ? <CheckOutIcon size={12} /> : <CheckInIcon size={12} />}
+                      </button>
+                    ))}
+                  </span>
+                )}
               </li>
             )
           })}
@@ -142,6 +177,12 @@ export default function TripPage() {
             dayIndex={dates.indexOf(selectedDate)}
             canEdit={canEdit}
             day={trip.days?.[selectedDate] ?? {}}
+            checkInStays={checkInsOn(hotelStays, selectedDate)}
+            checkOutStays={checkOutsOn(hotelStays, selectedDate)}
+            missingStay={isMissingStay(hotelStays, selectedDate)}
+            onOpenStay={(stay) => setHotelModal({ type: 'stay', stay })}
+            onAddStay={() => setHotelModal({ type: 'add', prefillCheckIn: selectedDate })}
+            onSetHotelNotNeeded={(flag) => setHotelNotNeeded(selectedDate, flag)}
             onSaveDay={(patch) =>
               saveTrip({
                 days: {
@@ -193,6 +234,11 @@ export default function TripPage() {
                 Add days
               </button>
             )}
+            {dates.length > 0 && (canEdit || hotelStays.length > 0) && (
+              <button type="button" className="btn btn-link" onClick={() => setHotelModal({ type: 'list' })}>
+                Hotel stays{hotelStays.length > 0 ? ` (${hotelStays.length})` : ''}
+              </button>
+            )}
           </p>
           {trip.summary && <p className="trip-summary">{trip.summary}</p>}
         </div>
@@ -200,6 +246,20 @@ export default function TripPage() {
 
       {trip.isOwner && settingsOpen && (
         <SharePanel trip={trip} onSave={saveTrip} onClose={() => setSettingsOpen(false)} />
+      )}
+
+      {(hotelModal?.type === 'list' || hotelModal?.type === 'add') && (
+        <HotelStaysModal
+          stays={hotelStays}
+          canEdit={canEdit}
+          initialAdd={hotelModal.type === 'add'}
+          prefillCheckIn={hotelModal.prefillCheckIn ?? null}
+          onSave={(next) => saveTrip({ hotelStays: next })}
+          onClose={() => setHotelModal(null)}
+        />
+      )}
+      {hotelModal?.type === 'stay' && (
+        <HotelStayDetail stay={hotelModal.stay} onClose={() => setHotelModal(null)} />
       )}
 
       {showChat && (

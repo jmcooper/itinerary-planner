@@ -271,6 +271,86 @@ test('duplicating an archived trip yields an unarchived copy', async () => {
   assert.equal(copy.body.archived, false)
 })
 
+test('PUT /api/trips/:id round-trips hotelStays with normalization', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Hotel Trip' })
+  const id = created.body.id
+  const res = await alice.put(`/api/trips/${id}`).send({
+    hotelStays: [
+      {
+        hotelName: '  Holiday Inn  ',
+        hotelAddress: ' 315 Yellowstone Ave ',
+        checkInDay: '2026-07-18',
+        checkOutDay: '2026-07-21',
+        confirmationNumber: ' ABC123 ',
+        junkField: 'dropped',
+      },
+      { hotelName: 'No Conf Inn', checkInDay: '2026-07-21', checkOutDay: '2026-07-22', confirmationNumber: '' },
+    ],
+  })
+  assert.equal(res.status, 200)
+  assert.deepEqual(res.body.hotelStays, [
+    {
+      hotelName: 'Holiday Inn',
+      hotelAddress: '315 Yellowstone Ave',
+      checkInDay: '2026-07-18',
+      checkOutDay: '2026-07-21',
+      confirmationNumber: 'ABC123',
+    },
+    { hotelName: 'No Conf Inn', hotelAddress: '', checkInDay: '2026-07-21', checkOutDay: '2026-07-22' },
+  ])
+  const fetched = await alice.get(`/api/trips/${id}`)
+  assert.equal(fetched.body.hotelStays.length, 2)
+})
+
+test('PUT /api/trips/:id rejects invalid hotelStays', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Bad Hotels' })
+  const id = created.body.id
+  const bad = [
+    { hotelStays: 'not an array' },
+    { hotelStays: [{ hotelName: '', checkInDay: '2026-07-18', checkOutDay: '2026-07-21' }] },
+    { hotelStays: [{ hotelName: 'X', checkInDay: 'July 18', checkOutDay: '2026-07-21' }] },
+    { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-21', checkOutDay: '2026-07-21' }] },
+    { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-22', checkOutDay: '2026-07-21' }] },
+    { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-18', checkOutDay: '2026-07-21', confirmationNumber: 7 }] },
+  ]
+  for (const body of bad) {
+    const res = await alice.put(`/api/trips/${id}`).send(body)
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}`)
+  }
+})
+
+test('a shared editor can update hotelStays', async () => {
+  const carol = request.agent(app)
+  await carol.post('/api/auth/register').send({ username: 'carol', password: 'correct horse' })
+  const created = await alice.post('/api/trips').send({ name: 'Shared Hotels' })
+  const id = created.body.id
+  await alice.put(`/api/trips/${id}`).send({ sharedWith: ['carol'] })
+  const res = await carol.put(`/api/trips/${id}`).send({
+    hotelStays: [{ hotelName: 'Carol Inn', checkInDay: '2026-08-01', checkOutDay: '2026-08-02' }],
+  })
+  assert.equal(res.status, 200)
+  assert.equal(res.body.hotelStays[0].hotelName, 'Carol Inn')
+})
+
+test('duplicating a trip copies hotelStays', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Hotels To Copy' })
+  await alice.put(`/api/trips/${created.body.id}`).send({
+    hotelStays: [{ hotelName: 'Copy Inn', checkInDay: '2026-09-01', checkOutDay: '2026-09-03' }],
+  })
+  const copy = await alice.post(`/api/trips/${created.body.id}/duplicate`)
+  assert.equal(copy.body.hotelStays[0].hotelName, 'Copy Inn')
+})
+
+test('day-level hotelNotNeeded flag round-trips through days', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'No Hotel Day' })
+  const id = created.body.id
+  await alice
+    .put(`/api/trips/${id}`)
+    .send({ days: { '2026-07-04': { title: '', mapsUrl: '', items: [], hotelNotNeeded: true } } })
+  const res = await alice.get(`/api/trips/${id}`)
+  assert.equal(res.body.days['2026-07-04'].hotelNotNeeded, true)
+})
+
 test('trip ids are url-safe slugs derived from the name', async () => {
   const created = await alice.post('/api/trips').send({ name: 'Grand Cañón & Back!' })
   assert.match(created.body.id, /^[a-z0-9-]+$/)

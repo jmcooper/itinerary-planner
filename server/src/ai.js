@@ -7,6 +7,7 @@ import { genkit, z } from 'genkit'
 import { anthropic } from '@genkit-ai/anthropic'
 import { googleAI } from '@genkit-ai/google-genai'
 import { buildMapsUrl } from './timeblocks.js'
+import { normalizeHotelStays } from './hotels.js'
 
 // Load .env by explicit path (server/.env, then the repo root) so the keys are
 // found no matter which directory the server is launched from. Real
@@ -50,6 +51,12 @@ const itineraryUpdateSchema = z.object({
               ),
           })
         ),
+        hotelNotNeeded: z
+          .boolean()
+          .optional()
+          .describe(
+            'True only when the traveler has said no hotel is needed the night of this day. Omit to keep the day’s existing flag.'
+          ),
       })
     )
     .optional()
@@ -58,6 +65,24 @@ const itineraryUpdateSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Dates (YYYY-MM-DD) to delete from the itinerary entirely'),
+  hotelStays: z
+    .array(
+      z.object({
+        hotelName: z.string().min(1),
+        hotelAddress: z.string().describe('Street address of the hotel; empty string if unknown'),
+        checkInDay: z.string().describe('Check-in date, YYYY-MM-DD'),
+        checkOutDay: z
+          .string()
+          .describe(
+            'Check-out date, YYYY-MM-DD, after checkInDay. The stay covers checkInDay through the night before checkOutDay (check-out day exclusive).'
+          ),
+        confirmationNumber: z.string().optional().describe('Booking confirmation number, if known'),
+      })
+    )
+    .optional()
+    .describe(
+      'Full replacement of the trip’s ENTIRE hotel-stay list. When adding or editing one stay, include every existing stay that should remain.'
+    ),
 })
 
 // Applies an updateItinerary tool call to the stored trip. Exported for tests.
@@ -71,15 +96,22 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
     !input.tripName &&
     typeof input.summary !== 'string' &&
     !(input.days ?? []).length &&
-    !(input.removeDates ?? []).length
+    !(input.removeDates ?? []).length &&
+    input.hotelStays === undefined // [] is a valid "clear all stays"
   ) {
     return {
       ok: false,
       savedDays: [],
       removedDays: [],
       error:
-        'No changes received — provide days (full replacement of each listed day), removeDates, tripName, and/or summary.',
+        'No changes received — provide days (full replacement of each listed day), removeDates, tripName, summary, and/or hotelStays.',
     }
+  }
+  let normalizedStays = null
+  if (input.hotelStays !== undefined) {
+    const { stays, error } = normalizeHotelStays(input.hotelStays)
+    if (error) return { ok: false, savedDays: [], removedDays: [], error }
+    normalizedStays = stays
   }
   for (const day of input.days ?? []) {
     if (!DATE_RE.test(day.date)) throw new Error(`invalid day date: ${day.date} — use YYYY-MM-DD`)
@@ -100,6 +132,9 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
   for (const day of input.days ?? []) {
     const existing = trip.days[day.date]?.items ?? []
     const imagesByTitle = new Map(existing.map((it) => [it.title, it.imageIds ?? []]))
+    // hotelNotNeeded carries forward on full replacement (like imageIds)
+    // unless the input sets it explicitly.
+    const hotelNotNeeded = day.hotelNotNeeded ?? trip.days[day.date]?.hotelNotNeeded
     trip.days[day.date] = {
       title: day.title,
       mapsUrl: buildMapsUrl(day.waypoints),
@@ -112,6 +147,7 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
         travel: item.travel === true,
         imageIds: imagesByTitle.get(item.title) ?? [],
       })),
+      ...(hotelNotNeeded ? { hotelNotNeeded: true } : {}),
     }
     savedDays.push(day.date)
   }
@@ -122,9 +158,12 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
       removedDays.push(date)
     }
   }
+  if (normalizedStays) trip.hotelStays = normalizedStays
   trip.updatedAt = new Date().toISOString()
   await storage.writeTrip(trip)
-  return { ok: true, savedDays, removedDays }
+  const result = { ok: true, savedDays, removedDays }
+  if (normalizedStays) result.savedStays = normalizedStays.length
+  return result
 }
 
 // Reduces chat history to what every provider can replay: user/model/tool
@@ -175,6 +214,8 @@ export function compactHistoryForModel(messages) {
             if (dates.length) actions.push(`replaced days: ${dates.join(', ')}`)
             if (input.removeDates?.length)
               actions.push(`removed days: ${input.removeDates.join(', ')}`)
+            if (input.hotelStays)
+              actions.push(`replaced hotel stays (${input.hotelStays.length})`)
             return { text: `[Applied itinerary update — ${actions.join('; ') || 'no changes'}]` }
           }
           if (part.toolResponse && compactedRefs.has(part.toolResponse.ref)) return null
@@ -216,6 +257,7 @@ Today's date is ${new Date().toISOString().slice(0, 10)}.
 Current trip state:
 - Name: ${trip.name}
 - Summary: ${trip.summary || '(none)'}
+- Hotel stays (authoritative JSON): ${(trip.hotelStays ?? []).length ? JSON.stringify(trip.hotelStays) : '(none)'}
 - Current itinerary (authoritative JSON — older versions referenced in the chat history have had their details omitted):
 ${Object.keys(days).length ? JSON.stringify(days, null, 1) : '(no days yet)'}
 
@@ -231,7 +273,14 @@ Rules:
 - Plan realistic timings, driving distances, and pacing. Respect the traveler's stated constraints.
 - When replacing a day, carry forward the existing details you do not intend to change.
 - In your conversational reply, briefly summarize what you planned or changed — the app displays the full itinerary, so do not repeat it verbatim.
-- If the request is ambiguous or missing dates, ask before inventing details.`
+- If the request is ambiguous or missing dates, ask before inventing details.
+
+Hotel stays:
+- Record a hotel stay whenever the user mentions a hotel booking. hotelStays is a FULL replacement of the whole list — when adding or editing one stay, include every existing stay that should remain.
+- A stay covers checkInDay (inclusive) through checkOutDay (exclusive): the check-out day's night needs its own stay. The app warns on days not covered by any stay.
+- Never invent a check-in date, check-out date, or confirmation number. If any of them is missing from the user's request, ask for it before saving the stay. If the user says they don't have a confirmation number yet, save the stay without one.
+- When the user doesn't provide the hotel's address, fill it in yourself — never leave it empty. The address only feeds a Google Maps search, so it does not need to be a verified street address: give the street address if you know it, otherwise use "<hotel name>, <city, state/region>", which Maps resolves fine. State what you used in your reply so the user can correct it.
+- Set a day's hotelNotNeeded: true only when the user says no hotel is needed that night (e.g. a red-eye flight, staying with friends, the trip's final night at home).`
 }
 
 // Curated fallback used when live model discovery fails (e.g. transient
@@ -366,12 +415,13 @@ export function createAiAgent(env = process.env) {
     {
       name: 'updateItinerary',
       description:
-        'Create or update the trip itinerary. All fields are optional — only what you provide is applied. Each listed day is replaced entirely; unlisted days are untouched. Can also set the trip name and summary, and delete days via removeDates.',
+        'Create or update the trip itinerary. All fields are optional — only what you provide is applied. Each listed day is replaced entirely; unlisted days are untouched. Can also set the trip name and summary, delete days via removeDates, and replace the hotel-stay list via hotelStays.',
       inputSchema: itineraryUpdateSchema,
       outputSchema: z.object({
         ok: z.boolean(),
         savedDays: z.array(z.string()),
         removedDays: z.array(z.string()),
+        savedStays: z.number().optional(),
         error: z.string().optional(),
       }),
     },

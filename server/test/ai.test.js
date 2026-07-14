@@ -155,6 +155,69 @@ test('applyItineraryUpdate fails for a missing trip', async () => {
   await assert.rejects(() => applyItineraryUpdate(baseInput(), { storage, tripId: 'nope' }), /not found/)
 })
 
+const stayInput = () => ({
+  hotelStays: [
+    {
+      hotelName: 'Holiday Inn West Yellowstone',
+      hotelAddress: '315 Yellowstone Ave, West Yellowstone, MT',
+      checkInDay: '2026-07-18',
+      checkOutDay: '2026-07-21',
+      confirmationNumber: 'ABC123',
+    },
+  ],
+})
+
+test('applyItineraryUpdate saves hotelStays alone and reports savedStays', async () => {
+  const result = await applyItineraryUpdate(stayInput(), { storage, tripId: 'yellowstone' })
+  assert.equal(result.ok, true)
+  assert.equal(result.savedStays, 1)
+  assert.deepEqual(result.savedDays, [])
+  const trip = await storage.readTrip('yellowstone')
+  assert.deepEqual(trip.hotelStays, stayInput().hotelStays)
+})
+
+test('applyItineraryUpdate replaces the whole stay list; [] clears it', async () => {
+  await applyItineraryUpdate(stayInput(), { storage, tripId: 'yellowstone' })
+  const result = await applyItineraryUpdate({ hotelStays: [] }, { storage, tripId: 'yellowstone' })
+  assert.equal(result.ok, true)
+  assert.equal(result.savedStays, 0)
+  const trip = await storage.readTrip('yellowstone')
+  assert.deepEqual(trip.hotelStays, [])
+})
+
+test('applyItineraryUpdate returns ok:false (not throw) for invalid stays', async () => {
+  const before = await storage.readTrip('yellowstone')
+  for (const hotelStays of [
+    [{ hotelName: 'X', checkInDay: 'July 18', checkOutDay: '2026-07-21' }],
+    [{ hotelName: 'X', checkInDay: '2026-07-21', checkOutDay: '2026-07-18' }],
+    [{ hotelName: '', checkInDay: '2026-07-18', checkOutDay: '2026-07-21' }],
+  ]) {
+    const result = await applyItineraryUpdate({ hotelStays }, { storage, tripId: 'yellowstone' })
+    assert.equal(result.ok, false, `expected ok:false for ${JSON.stringify(hotelStays)}`)
+    assert.ok(result.error)
+  }
+  const after = await storage.readTrip('yellowstone')
+  assert.equal(after.updatedAt, before.updatedAt) // nothing written
+})
+
+test('day replacement carries hotelNotNeeded forward; explicit value wins', async () => {
+  // seed the flag on the existing day
+  const flagged = baseInput()
+  flagged.days[0].hotelNotNeeded = true
+  await applyItineraryUpdate(flagged, { storage, tripId: 'yellowstone' })
+  assert.equal((await storage.readTrip('yellowstone')).days['2026-07-01'].hotelNotNeeded, true)
+
+  // replace the day without mentioning the flag — it survives
+  await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
+  assert.equal((await storage.readTrip('yellowstone')).days['2026-07-01'].hotelNotNeeded, true)
+
+  // explicit false clears it
+  const cleared = baseInput()
+  cleared.days[0].hotelNotNeeded = false
+  await applyItineraryUpdate(cleared, { storage, tripId: 'yellowstone' })
+  assert.ok(!('hotelNotNeeded' in (await storage.readTrip('yellowstone')).days['2026-07-01']))
+})
+
 test('sanitizeChatMessages keeps only replayable message parts', () => {
   const messages = [
     // The system prompt is rebuilt each turn from trip state — never replayed
@@ -248,6 +311,49 @@ test('compactHistoryForModel replaces old tool pairs with text notes', () => {
   // Stored messages are not mutated in place
   assert.equal(messages[1].content[1].toolRequest.input.days[0].items[0].description.length, 500)
   assert.equal(messages.length, 4)
+})
+
+test('compactHistoryForModel notes hotel-stay replacements', () => {
+  const messages = [
+    {
+      role: 'model',
+      content: [
+        {
+          toolRequest: {
+            name: 'updateItinerary',
+            ref: '0',
+            input: { hotelStays: [{ hotelName: 'A' }, { hotelName: 'B' }] },
+          },
+        },
+      ],
+    },
+  ]
+  const note = compactHistoryForModel(messages)[0].content[0].text
+  assert.match(note, /replaced hotel stays \(2\)/)
+})
+
+test('systemPrompt embeds hotel stays and the coverage rules', () => {
+  const trip = {
+    name: 'Yellowstone',
+    summary: '',
+    days: {},
+    hotelStays: [
+      {
+        hotelName: 'Holiday Inn West Yellowstone',
+        hotelAddress: '315 Yellowstone Ave',
+        checkInDay: '2026-07-18',
+        checkOutDay: '2026-07-21',
+        confirmationNumber: 'ABC123',
+      },
+    ],
+  }
+  const prompt = systemPrompt(trip)
+  assert.match(prompt, /Holiday Inn West Yellowstone/)
+  assert.match(prompt, /ABC123/)
+  assert.match(prompt, /checkOutDay \(exclusive\)/)
+  assert.match(prompt, /Never invent a check-in date, check-out date, or confirmation number/)
+  // Without stays the section reads (none)
+  assert.match(systemPrompt({ name: 'X', summary: '', days: {} }), /Hotel stays[^\n]*\(none\)/)
 })
 
 test('systemPrompt embeds the full current itinerary details', () => {

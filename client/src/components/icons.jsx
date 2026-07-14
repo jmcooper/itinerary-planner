@@ -24,6 +24,28 @@ export function CopyIcon() {
   )
 }
 
+// Hotel check-in: an arrow entering the house from the left.
+export function CheckInIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 9.5l6-5.5 6 5.5V19a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-3" />
+      <line x1="1" y1="13" x2="9" y2="13" />
+      <path d="M6 10l3 3-3 3" />
+    </svg>
+  )
+}
+
+// Hotel check-out: an arrow leaving the house to the right.
+export function CheckOutIcon({ size = 14 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 9.5L8 4l6 5.5V19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-3" />
+      <line x1="14" y1="13" x2="22" y2="13" />
+      <path d="M19 10l3 3-3 3" />
+    </svg>
+  )
+}
+
 export function TrashIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
