@@ -10,6 +10,8 @@ import {
   isDatedSnapshot,
   sortModelsForDisplay,
   sanitizeChatMessages,
+  compactHistoryForModel,
+  systemPrompt,
 } from '../src/ai.js'
 
 let dataDir
@@ -175,6 +177,88 @@ test('sanitizeChatMessages keeps only replayable message parts', () => {
       content: [{ toolResponse: { name: 'updateItinerary', ref: '0', output: { ok: true } } }],
     },
   ])
+})
+
+test('compactHistoryForModel stubs out old tool payloads but keeps the dialogue', () => {
+  const bigDay = {
+    date: '2026-07-01',
+    title: 'Geysers',
+    waypoints: ['A', 'B'],
+    items: [{ timeStart: '08:00', timeEnd: null, title: 'Go', description: 'x'.repeat(500) }],
+  }
+  const messages = [
+    { role: 'user', content: [{ text: 'Plan my trip, no strenuous hikes' }] },
+    {
+      role: 'model',
+      content: [
+        { text: 'Here is the plan.' },
+        {
+          toolRequest: {
+            name: 'updateItinerary',
+            ref: '0',
+            input: { tripName: 'Yellowstone', summary: 's', days: [bigDay], removeDates: ['2026-07-05'] },
+          },
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [
+        { toolResponse: { name: 'updateItinerary', ref: '0', output: { ok: true, savedDays: ['2026-07-01'], removedDays: ['2026-07-05'] } } },
+      ],
+    },
+    { role: 'user', content: [{ text: 'Make day 1 end earlier' }] },
+  ]
+
+  const compacted = compactHistoryForModel(messages)
+
+  // Dialogue text is untouched
+  assert.deepEqual(compacted[0], messages[0])
+  assert.deepEqual(compacted[1].content[0], { text: 'Here is the plan.' })
+  assert.deepEqual(compacted[3], messages[3])
+
+  // The bulky tool input is replaced with a compact description
+  const stub = compacted[1].content[1].toolRequest
+  assert.equal(stub.name, 'updateItinerary')
+  assert.equal(stub.ref, '0') // ref preserved so the tool response still pairs up
+  const stubText = JSON.stringify(stub.input)
+  assert.ok(stubText.length < 250, `stub should be small, got ${stubText.length}`)
+  assert.match(stubText, /2026-07-01/)
+  assert.match(stubText, /2026-07-05/)
+  assert.ok(!stubText.includes('xxxxx'), 'day content must not be replayed')
+
+  // Tool responses pass through (already tiny) and inputs are not mutated in place
+  assert.deepEqual(compacted[2], messages[2])
+  assert.ok(messages[1].content[1].toolRequest.input.days[0].items[0].description.length === 500)
+})
+
+test('systemPrompt embeds the full current itinerary details', () => {
+  const trip = {
+    name: 'Yellowstone',
+    summary: 'Fun',
+    days: {
+      '2026-07-01': {
+        title: 'Geysers',
+        mapsUrl: 'https://www.google.com/maps/dir/?api=1&origin=A&destination=B',
+        items: [
+          {
+            timeStart: '08:00',
+            timeEnd: '08:30',
+            timeLabel: null,
+            title: 'Fountain Paint Pot',
+            description: 'Easy **boardwalk** stop.',
+            travel: false,
+            imageIds: ['img_secret'],
+          },
+        ],
+      },
+    },
+  }
+  const prompt = systemPrompt(trip)
+  assert.match(prompt, /Fountain Paint Pot/)
+  assert.match(prompt, /Easy \*\*boardwalk\*\* stop\./) // full descriptions included
+  assert.match(prompt, /maps\.google|google\.com\/maps/) // maps link retained for waypoint context
+  assert.ok(!prompt.includes('img_secret'), 'image ids are noise for the model')
 })
 
 test('prettyModelLabel humanizes model ids', () => {

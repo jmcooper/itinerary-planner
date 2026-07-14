@@ -135,19 +135,61 @@ export function sanitizeChatMessages(messages) {
     .filter((message) => message.content.length > 0)
 }
 
-function systemPrompt(trip) {
-  const dayLines = Object.entries(trip.days ?? {})
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, day]) => {
-      const items = (day.items ?? [])
-        .map(
-          (it) =>
-            `    - ${it.timeStart ?? it.timeLabel ?? ''}${it.timeEnd ? `–${it.timeEnd}` : ''} ${it.title}`
-        )
-        .join('\n')
-      return `  ${date}: ${day.title || '(untitled)'}\n${items}`
-    })
-    .join('\n')
+// Replaying every historical updateItinerary payload is the dominant token
+// cost of a conversation, and the current trip state supersedes them anyway.
+// When sending history to the model, swap old tool inputs for a short
+// description of what the call did; the stored history keeps everything for
+// display. Refs are preserved so tool responses still pair up.
+export function compactHistoryForModel(messages) {
+  return (messages ?? []).map((message) => ({
+    ...message,
+    content: message.content.map((part) => {
+      const req = part.toolRequest
+      if (!req || req.name !== 'updateItinerary') return part
+      const input = req.input ?? {}
+      const actions = []
+      if (input.tripName) actions.push(`renamed the trip to "${input.tripName}"`)
+      if (typeof input.summary === 'string') actions.push('updated the trip summary')
+      const dates = (input.days ?? []).map((d) => d.date)
+      if (dates.length) actions.push(`replaced days: ${dates.join(', ')}`)
+      if (input.removeDates?.length) actions.push(`removed days: ${input.removeDates.join(', ')}`)
+      return {
+        toolRequest: {
+          ...req,
+          input: {
+            compacted: actions.join('; ') || 'no changes',
+            note: 'Superseded by the current trip state.',
+          },
+        },
+      }
+    }),
+  }))
+}
+
+// Exported for tests.
+export function systemPrompt(trip) {
+  // Full fidelity: the model edits days by full replacement, so it needs every
+  // current detail (descriptions, travel flags) to carry them forward. Image
+  // ids are internal references the model shouldn't see or invent.
+  const days = Object.fromEntries(
+    Object.entries(trip.days ?? {})
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, day]) => [
+        date,
+        {
+          title: day.title ?? '',
+          mapsUrl: day.mapsUrl ?? '',
+          items: (day.items ?? []).map((it) => ({
+            timeStart: it.timeStart ?? null,
+            timeEnd: it.timeEnd ?? null,
+            ...(it.timeLabel ? { timeLabel: it.timeLabel } : {}),
+            title: it.title,
+            description: it.description,
+            ...(it.travel ? { travel: true } : {}),
+          })),
+        },
+      ])
+  )
   return `You are a travel-itinerary planning assistant embedded in an itinerary builder app.
 
 Today's date is ${new Date().toISOString().slice(0, 10)}.
@@ -155,8 +197,8 @@ Today's date is ${new Date().toISOString().slice(0, 10)}.
 Current trip state:
 - Name: ${trip.name}
 - Summary: ${trip.summary || '(none)'}
-- Days (each day owns its date; the trip has no separate date range):
-${dayLines || '  (no days yet)'}
+- Current itinerary (authoritative JSON — older versions referenced in the chat history have had their details omitted):
+${Object.keys(days).length ? JSON.stringify(days, null, 1) : '(no days yet)'}
 
 Rules:
 - Whenever you create or change the itinerary, call the updateItinerary tool. Never describe an itinerary as saved unless the tool call succeeded.
@@ -167,6 +209,7 @@ Rules:
 - Mark items that are pure travel between locations (driving, flying, transit) with travel: true, a short title like "Drive to Biscuit Basin", and accurate timeStart/timeEnd so the app can show the duration. Do not mark stops that merely include some walking.
 - Item descriptions are markdown; keep them informative but compact (why it's worth doing, practical tips, distances/durations).
 - Plan realistic timings, driving distances, and pacing. Respect the traveler's stated constraints.
+- When replacing a day, carry forward the existing details you do not intend to change.
 - In your conversational reply, briefly summarize what you planned or changed — the app displays the full itinerary, so do not repeat it verbatim.
 - If the request is ambiguous or missing dates, ask before inventing details.`
 }
@@ -326,8 +369,9 @@ export function createAiAgent(env = process.env) {
         model,
         system: systemPrompt(trip),
         // Sanitize on the way in too, so histories saved before sanitization
-        // (or by other models) replay cleanly.
-        messages: sanitizeChatMessages(messages),
+        // (or by other models) replay cleanly; compact old tool payloads —
+        // the current trip state in the system prompt supersedes them.
+        messages: compactHistoryForModel(sanitizeChatMessages(messages)),
         tools: [updateItinerary],
         maxTurns: 24,
         context: { storage, tripId: trip.id, emit },
