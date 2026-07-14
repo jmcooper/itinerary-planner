@@ -71,7 +71,8 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave }) {
 }
 
 // Also used by DayView to add new items (pass an empty item shape).
-export function ItemEditForm({ item, onSave, onCancel }) {
+// extraActions renders at the far right of the Save/Cancel row.
+export function ItemEditForm({ item, onSave, onCancel, extraActions = null }) {
   const [start, setStart] = useState(item.timeLabel ?? (item.timeStart ? formatTimeBlock({ timeStart: item.timeStart }) : ''))
   const [end, setEnd] = useState(item.timeEnd ? formatTimeBlock({ timeStart: item.timeEnd }) : '')
   const [title, setTitle] = useState(item.title)
@@ -139,6 +140,7 @@ export function ItemEditForm({ item, onSave, onCancel }) {
         <button type="button" className="btn btn-ghost btn-small" onClick={onCancel}>
           Cancel
         </button>
+        {extraActions}
       </div>
     </form>
   )

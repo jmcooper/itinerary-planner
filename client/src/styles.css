@@ -1943,6 +1943,12 @@ label {
   text-decoration: underline;
 }
 
+/* Inside a Save/Cancel row the quiet link sits at the far right */
+.form-actions .quiet-toggle {
+  margin-left: auto;
+  align-self: center;
+}
+
 .day-add-item {
   margin-top: 1rem;
   border: 1px solid var(--line);

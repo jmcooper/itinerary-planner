@@ -315,6 +315,11 @@ function EmptyDayEditor({ onSaveItems }) {
           item={newItem()}
           onSave={(item) => onSaveItems([item])}
           onCancel={() => setMode('menu')}
+          extraActions={
+            <button type="button" className="quiet-toggle" onClick={() => setMode('paste')}>
+              Use old CSV flow
+            </button>
+          }
         />
       </div>
     )
@@ -325,11 +330,6 @@ function EmptyDayEditor({ onSaveItems }) {
       <button type="button" className="btn btn-primary" onClick={() => setMode('add')}>
         Add Itinerary Item
       </button>
-      <p className="quiet-toggle-row">
-        <button type="button" className="quiet-toggle" onClick={() => setMode('paste')}>
-          Use old CSV flow
-        </button>
-      </p>
     </div>
   )
 }
