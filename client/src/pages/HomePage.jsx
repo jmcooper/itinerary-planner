@@ -24,12 +24,23 @@ export default function HomePage() {
   }, [user])
 
   async function handleDelete(trip) {
+    // Trips that other trips link days to get the copy-and-delete dialog
+    // right away — it doubles as the delete confirmation.
+    try {
+      const { linkers } = await api.getTripLinkers(trip.id)
+      if (linkers.length > 0) {
+        setLinkedDelete({ trip, linkers })
+        return
+      }
+    } catch {
+      // fall through to the plain confirm; the server still guards the delete
+    }
     if (!window.confirm(`Delete "${trip.name}"? This cannot be undone.`)) return
     try {
       await api.deleteTrip(trip.id)
       setTrips((prev) => ({ ...prev, mine: prev.mine.filter((t) => t.id !== trip.id) }))
     } catch (err) {
-      // Other trips link days to this one — offer to materialize first.
+      // Race: a link appeared since the check — offer to materialize.
       if (err.status === 409 && err.body?.linkers) setLinkedDelete({ trip, linkers: err.body.linkers })
       else setError(err.message)
     }

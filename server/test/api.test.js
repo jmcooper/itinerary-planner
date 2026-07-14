@@ -528,6 +528,19 @@ test('unlinking removes the guard on the source trip', async () => {
   assert.equal(allowed.status, 200)
 })
 
+test('GET /api/trips/:id/linkers names the trips linking here (owner only)', async () => {
+  const { a, b } = await makeLinkedPair()
+  const res = await alice.get(`/api/trips/${a.id}/linkers`)
+  assert.equal(res.status, 200)
+  assert.equal(res.body.linkers.length, 1)
+  assert.match(res.body.linkers[0], /^Linker /)
+  // no links the other way
+  const none = await alice.get(`/api/trips/${b.id}/linkers`)
+  assert.deepEqual(none.body.linkers, [])
+  // owner only
+  assert.equal((await request(app).get(`/api/trips/${a.id}/linkers`)).status, 404)
+})
+
 test('deleting a linked-to trip is refused with the linking trip names', async () => {
   const { a, b } = await makeLinkedPair()
   const res = await alice.delete(`/api/trips/${a.id}`)

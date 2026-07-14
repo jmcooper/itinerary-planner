@@ -380,6 +380,21 @@ export function createApp(
     })
   )
 
+  // Names of trips that link days to this one — the client checks this on
+  // delete so the copy-and-delete warning shows before any confirmation.
+  app.get(
+    '/api/trips/:id/linkers',
+    wrap(async (req, res) => {
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      if (!req.username) return res.status(401).json({ error: 'authentication required' })
+      if (!isOwner(trip, req.username))
+        return res.status(403).json({ error: 'only the owner can inspect linking trips' })
+      const linkers = await findLinkingTrips(trip.id, storage)
+      res.json({ linkers: linkers.map((t) => t.name) })
+    })
+  )
+
   app.delete(
     '/api/trips/:id',
     wrap(async (req, res) => {

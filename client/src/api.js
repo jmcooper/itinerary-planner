@@ -33,6 +33,7 @@ export const api = {
   // such links exist).
   deleteTrip: (id, { copyLinks = false } = {}) =>
     fetchJson(`/api/trips/${id}${copyLinks ? '?copyLinks=1' : ''}`, { method: 'DELETE' }),
+  getTripLinkers: (id) => fetchJson(`/api/trips/${id}/linkers`),
   duplicateTrip: (id) => fetchJson(`/api/trips/${id}/duplicate`, { method: 'POST' }),
   aiStatus: () => fetchJson('/api/ai/status'),
   createAiTrip: (description) =>
