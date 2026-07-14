@@ -130,18 +130,22 @@ export default function ChatPanel({
   }
 
   return (
-    <section className="chat-panel" aria-label="Trip assistant">
+    <section className="chat-panel" aria-label="Travel agent">
       <div className="chat-header">
-        <h2 className="chat-title">Assistant</h2>
-        <ModelPicker models={models} value={model} onChange={setModel} disabled={busy} />
+        <h2 className="chat-title">Travel Agent</h2>
       </div>
+      {models.length > 1 && (
+        <div className="chat-toolbar">
+          <ModelPicker models={models} value={model} onChange={setModel} disabled={busy} />
+        </div>
+      )}
       <div className="chat-history" ref={scrollRef}>
         {messages === null ? (
           <p className="muted">Loading conversation…</p>
         ) : messages.length === 0 && !pendingUser && !busy ? (
           <p className="muted chat-empty">
-            Ask the assistant to plan or change this trip — e.g. “Add a relaxed food-focused day in
-            Florence on the 12th.”
+            Ask the travel agent to plan or change this trip — e.g. “Add a relaxed food-focused day
+            in Florence on the 12th.”
           </p>
         ) : (
           messages.map((m, i) =>
@@ -164,7 +168,7 @@ export default function ChatPanel({
                 <Markdown>{streamText}</Markdown>
               </div>
             )}
-            <div className="chat-dots" role="status" aria-label="The assistant is working">
+            <div className="chat-dots" role="status" aria-label="The travel agent is working">
               <span />
               <span />
               <span />
@@ -184,7 +188,7 @@ export default function ChatPanel({
             }
           }}
           placeholder="Ask for changes, e.g. “Let’s have day 2 end at 3pm”"
-          aria-label="Message the assistant"
+          aria-label="Message the travel agent"
           rows={2}
           disabled={busy}
         />

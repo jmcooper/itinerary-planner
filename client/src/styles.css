@@ -1220,20 +1220,27 @@ label {
   flex-direction: column;
   height: calc(100vh - 190px);
   min-height: 380px;
-  padding: 14px;
+  overflow: hidden; /* clip the colored header to the rounded corners */
 }
 
+/* Colored title bar across the top of the agent bubble */
 .chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
+  background: var(--primary-soft);
+  border-bottom: 2px solid var(--primary);
+  padding: 10px 16px;
 }
 
 .chat-title {
   font-size: 1.05rem;
   margin: 0;
+  color: var(--primary-dark);
+  letter-spacing: 0.01em;
+}
+
+.chat-toolbar {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--primary-soft) 30%, var(--card));
 }
 
 .model-picker {
@@ -1255,12 +1262,28 @@ label {
   max-width: 200px;
 }
 
+/* In the chat toolbar the picker is a single labeled row */
+.chat-toolbar .model-picker {
+  width: 100%;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.chat-toolbar .model-picker select {
+  flex: 1;
+  max-width: none;
+  padding: 5px 8px;
+  font-weight: 400;
+}
+
 .chat-history {
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding-right: 4px;
+  padding: 10px 14px 0;
 }
 
 .chat-empty {
@@ -1350,7 +1373,7 @@ label {
 .chat-input {
   display: flex;
   gap: 8px;
-  margin-top: 10px;
+  padding: 10px 14px 14px;
   align-items: flex-end;
 }
 

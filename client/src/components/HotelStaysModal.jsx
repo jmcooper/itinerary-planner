@@ -175,7 +175,7 @@ export function HotelStaysModal({
           // Nudge toward the conversational path, but only for new stays.
           hint={
             editing === -1 && chatAvailable
-              ? 'Tip: you can also ask the assistant — e.g. “Add a hotel stay at the Holiday Inn, checking in July 18 and out July 21.”'
+              ? 'Tip: you can also ask the travel agent — e.g. “Add a hotel stay at the Holiday Inn, checking in July 18 and out July 21.”'
               : null
           }
         />

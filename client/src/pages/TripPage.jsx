@@ -281,7 +281,7 @@ export default function TripPage() {
             className={`trip-tab${mobileView === 'chat' ? ' active' : ''}`}
             onClick={() => setMobileView('chat')}
           >
-            Assistant
+            Travel Agent
           </button>
         </div>
       )}
