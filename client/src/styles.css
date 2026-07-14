@@ -2048,18 +2048,6 @@ label {
   font-weight: 600;
 }
 
-/* The faint grey quiet-link disappears on the tinted bar — give Unlink
-   enough contrast to be findable. */
-.linked-day-note .quiet-toggle {
-  color: var(--primary-dark);
-  text-decoration: underline;
-  font-size: 0.85rem;
-}
-
-.linked-day-note .quiet-toggle:hover {
-  color: var(--danger);
-}
-
 .link-day-form {
   display: flex;
   flex-direction: column;
