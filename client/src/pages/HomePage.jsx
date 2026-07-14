@@ -111,12 +111,12 @@ export default function HomePage() {
             without those days. Would you like to copy the data from this trip to the linked trip
             {linkedDelete.linkers.length > 1 ? 's' : ''}?
           </p>
-          <div className="form-actions">
-            <button type="button" className="btn btn-primary" onClick={handleCopyAndDelete}>
-              Copy Details and Delete
-            </button>
+          <div className="form-actions form-actions-right">
             <button type="button" className="btn btn-ghost" onClick={() => setLinkedDelete(null)}>
               Cancel
+            </button>
+            <button type="button" className="btn btn-danger-solid" onClick={handleCopyAndDelete}>
+              Copy Details and Delete
             </button>
           </div>
         </Modal>

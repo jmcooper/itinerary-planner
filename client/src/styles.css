@@ -1539,6 +1539,21 @@ label {
   color: var(--danger);
 }
 
+.form-actions-right {
+  justify-content: flex-end;
+}
+
+/* Solid red button for destructive confirmations */
+.btn-danger-solid {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger-solid:hover {
+  background: color-mix(in srgb, var(--danger) 85%, black);
+  color: #fff;
+}
+
 .btn-success-outline {
   background: transparent;
   color: var(--success);
