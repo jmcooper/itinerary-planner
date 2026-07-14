@@ -60,6 +60,24 @@ export function createStorage(dataDir) {
     return path.join(dataDir, `${id}.chat.json`)
   }
 
+  // Renames a trip's id: rewrites the trip file under the new id and moves the
+  // images/chat sidecar files with it. Caller must have verified newId is free.
+  async function renameTrip(oldId, newId) {
+    const trip = await readTrip(oldId)
+    if (!trip) return null
+    trip.id = newId
+    await writeTrip(trip)
+    for (const fileFor of [imagesFileFor, chatFileFor]) {
+      try {
+        await rename(fileFor(oldId), fileFor(newId))
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err // missing sidecar files are fine
+      }
+    }
+    await rm(fileFor(oldId), { force: true })
+    return trip
+  }
+
   async function readChat(tripId) {
     try {
       return JSON.parse(await readFile(chatFileFor(tripId), 'utf8'))
@@ -118,6 +136,7 @@ export function createStorage(dataDir) {
     writeTrip,
     listTrips,
     deleteTrip,
+    renameTrip,
     slugify,
     readImages,
     writeImages,

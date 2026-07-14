@@ -1578,3 +1578,14 @@ label {
   width: auto;
   margin: 0;
 }
+
+.share-slug-prefix {
+  color: var(--ink-soft);
+  font-weight: 600;
+  align-self: center;
+}
+
+.share-slug-note {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+}

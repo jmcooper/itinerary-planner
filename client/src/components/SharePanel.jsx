@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { filterUsernames } from '../lib/users.js'
 
+const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
 // Owner-only controls: trip rename, public/private toggle, plus a searchable
 // dropdown of all usernames — click to browse, type to filter — with shared
 // users shown as removable chips.
@@ -9,9 +11,16 @@ export default function SharePanel({ trip, onSave, onClose }) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState(trip.name)
+  const [slug, setSlug] = useState(trip.id)
   const isPublic = trip.visibility === 'public'
   const sharedWith = trip.sharedWith ?? []
   const nameChanged = name.trim() !== trip.name && name.trim() !== ''
+  const slugValue = slug.trim()
+  const slugChanged = slugValue !== trip.id && slugValue !== ''
+  const slugValid = SLUG_RE.test(slugValue) && slugValue.length >= 3 && slugValue.length <= 80
+
+  // The rename navigates to the new URL; keep the field in sync with it.
+  useEffect(() => setSlug(trip.id), [trip.id])
 
   async function save(patch) {
     setSaving(true)
@@ -64,6 +73,41 @@ export default function SharePanel({ trip, onSave, onClose }) {
             {saving ? 'Saving…' : 'Rename'}
           </button>
         </div>
+      </form>
+
+      <form
+        className="share-rename"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (slugChanged && slugValid) save({ slug: slugValue })
+        }}
+      >
+        <label className="share-label" htmlFor="trip-slug-input">
+          Trip URL
+        </label>
+        <div className="share-rename-row">
+          <span className="share-slug-prefix">/trips/</span>
+          <input
+            id="trip-slug-input"
+            type="text"
+            value={slug}
+            maxLength={80}
+            disabled={saving}
+            spellCheck={false}
+            onChange={(e) => setSlug(e.target.value)}
+          />
+          <button
+            type="submit"
+            className="btn btn-primary btn-small"
+            disabled={saving || !slugChanged || !slugValid}
+          >
+            {saving ? 'Saving…' : 'Change URL'}
+          </button>
+        </div>
+        <p className="muted share-slug-note">
+          Lowercase letters, digits, and hyphens{slugChanged && !slugValid ? ' — this URL isn’t valid yet' : ''}.
+          Old links stop working after a change.
+        </p>
       </form>
 
       <div className="share-visibility">

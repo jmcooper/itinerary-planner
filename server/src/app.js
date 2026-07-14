@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url'
 import { createStorage } from './storage.js'
 import { createAuth, USERNAME_RE, MIN_PASSWORD_LENGTH } from './auth.js'
 
+// Slugs that would collide with app routes ("/trips/new") or API routes.
+const RESERVED_SLUGS = new Set(['new', 'ai'])
+
 // Legacy trips (created before accounts existed) have no ownerId; they are
 // treated as public and any signed-in user may edit or delete them.
 function canView(trip, username) {
@@ -294,6 +297,34 @@ export function createApp(
             return res.status(400).json({ error: `unknown user: ${username}` })
         }
         trip.sharedWith = usernames
+      }
+
+      // The slug is the trip's id, URL, and on-disk filename; changing it
+      // renames all of them together.
+      if ('slug' in body) {
+        if (!isOwner(trip, req.username))
+          return res.status(403).json({ error: 'only the owner can change the trip URL' })
+        const slug = body.slug
+        if (
+          typeof slug !== 'string' ||
+          slug.length < 3 ||
+          slug.length > 80 ||
+          !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) ||
+          RESERVED_SLUGS.has(slug)
+        )
+          return res.status(400).json({
+            error: 'the URL must be 3-80 characters: lowercase letters, digits, and hyphens',
+          })
+        if (slug !== trip.id) {
+          if (activeChats.has(trip.id))
+            return res
+              .status(409)
+              .json({ error: 'The assistant is working on this trip — try again when it finishes.' })
+          if (await storage.readTrip(slug))
+            return res.status(409).json({ error: 'that URL is already taken' })
+          await storage.renameTrip(trip.id, slug)
+          trip.id = slug
+        }
       }
 
       if ('name' in body) {

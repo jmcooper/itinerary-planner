@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api.js'
 import { listDates, listTripDates, formatDay, formatRange } from '../lib/dates.js'
 import DayView from '../components/DayView.jsx'
@@ -10,6 +10,7 @@ import { GearIcon } from '../components/icons.jsx'
 export default function TripPage() {
   const { id } = useParams()
   const location = useLocation()
+  const navigate = useNavigate()
   const initialPrompt = location.state?.initialPrompt ?? null
   const initialModel = location.state?.model ?? null
   const [trip, setTrip] = useState(null)
@@ -39,6 +40,8 @@ export default function TripPage() {
   async function saveTrip(patch) {
     const updated = await api.updateTrip(id, patch)
     setTrip(updated)
+    // Changing the slug changes the trip's URL — follow it.
+    if (updated.id !== id) navigate(`/trips/${updated.id}`, { replace: true })
     return updated
   }
 
