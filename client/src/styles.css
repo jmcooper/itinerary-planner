@@ -1539,8 +1539,31 @@ label {
   color: var(--danger);
 }
 
+.btn-success-outline {
+  background: transparent;
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.btn-success-outline:hover {
+  background: rgba(74, 124, 89, 0.08);
+  border-color: var(--success);
+  color: var(--success);
+}
+
 .day-table-footer {
   gap: 10px;
+}
+
+.day-table-footer .btn {
+  white-space: nowrap;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.9rem;
+}
+
+.itin-item-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* Duplicate button on trip cards — as quiet as the delete X beside it. */

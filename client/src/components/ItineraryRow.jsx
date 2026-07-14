@@ -3,7 +3,7 @@ import { formatTimeBlock, formatDuration, parseTimeInput } from '../lib/time.js'
 import Markdown from './Markdown.jsx'
 import ItemImages from './ItemImages.jsx'
 
-export default function ItineraryRow({ tripId, item, canEdit, onSave }) {
+export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const travelDuration = item.travel ? formatDuration(item) : ''
@@ -51,9 +51,21 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave }) {
                   <p className="muted">No details for this item yet.</p>
                 )}
                 {canEdit && (
-                  <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(true)}>
-                    Edit
-                  </button>
+                  <div className="itin-item-actions">
+                    <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(true)}>
+                      Edit
+                    </button>
+                    {onDelete && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-small btn-danger"
+                        onClick={onDelete}
+                        title="Delete this item"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               <ItemImages

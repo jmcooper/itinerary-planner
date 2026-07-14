@@ -411,10 +411,10 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
     await onSaveItems(next)
   }
 
-  async function handleClearDay() {
-    if (!window.confirm('Remove all items from this day?')) return
+  async function deleteItem(index) {
+    if (!window.confirm(`Delete "${items[index].title}" from this day?`)) return
     try {
-      await onSaveItems([])
+      await onSaveItems(items.filter((_, i) => i !== index))
     } catch (err) {
       setError(err.message)
     }
@@ -431,6 +431,7 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
             item={item}
             canEdit={canEdit}
             onSave={(u) => saveItem(index, u)}
+            onDelete={() => deleteItem(index)}
           />
         ))}
       </ul>
@@ -449,15 +450,16 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
       )}
       {canEdit && (
         <div className="day-table-footer">
+          {onDeleteDay && <DeleteDayButton onClick={onDeleteDay} />}
           {!adding && (
-            <button type="button" className="btn btn-ghost" onClick={() => setAdding(true)}>
-              Add Item
+            <button
+              type="button"
+              className="btn btn-ghost btn-success-outline"
+              onClick={() => setAdding(true)}
+            >
+              Add Itinerary Item
             </button>
           )}
-          {onDeleteDay && <DeleteDayButton onClick={onDeleteDay} />}
-          <button type="button" className="btn btn-ghost btn-danger" onClick={handleClearDay}>
-            Clear all items
-          </button>
         </div>
       )}
     </div>
