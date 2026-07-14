@@ -158,7 +158,7 @@ export default function TripPage() {
                         aria-label={`${out ? 'Check out of' : 'Check in to'} ${stay.hotelName}`}
                         onClick={() => setHotelModal({ type: 'stay', stay })}
                       >
-                        {out ? <CheckOutIcon size={12} /> : <CheckInIcon size={12} />}
+                        {out ? <CheckOutIcon size={17} /> : <CheckInIcon size={17} />}
                       </button>
                     ))}
                   </span>
