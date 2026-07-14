@@ -351,6 +351,105 @@ test('day-level hotelNotNeeded flag round-trips through days', async () => {
   assert.equal(res.body.days['2026-07-04'].hotelNotNeeded, true)
 })
 
+// ---- Linked days ----
+
+const linkedItems = [
+  { timeStart: '09:00', timeEnd: null, timeLabel: null, title: 'Shared stop', description: 'd', travel: false, imageIds: [] },
+]
+
+async function makeLinkedPair() {
+  const a = (await alice.post('/api/trips').send({ name: `Target ${Math.random().toString(36).slice(2, 8)}` })).body
+  await alice.put(`/api/trips/${a.id}`).send({
+    days: { '2026-07-18': { title: 'A day', mapsUrl: '', items: linkedItems } },
+  })
+  const b = (await alice.post('/api/trips').send({ name: `Linker ${Math.random().toString(36).slice(2, 8)}` })).body
+  await alice.put(`/api/trips/${b.id}`).send({
+    days: {
+      '2026-07-17': { title: '', mapsUrl: '', items: [] },
+      '2026-07-18': { linkedTripId: a.id },
+    },
+  })
+  return { a, b }
+}
+
+test('GET resolves a linked day to the target content with link metadata', async () => {
+  const { a, b } = await makeLinkedPair()
+  const res = await alice.get(`/api/trips/${b.id}`)
+  const day = res.body.days['2026-07-18']
+  assert.equal(day.linkedTripId, a.id)
+  assert.match(day.linkedTripName, /^Target /)
+  assert.equal(day.linkedCanEdit, true)
+  assert.equal(day.title, 'A day')
+  assert.equal(day.items[0].title, 'Shared stop')
+})
+
+test('linked content is never duplicated — target stays the source of truth', async () => {
+  const { a, b } = await makeLinkedPair()
+  // Round-trip the resolved payload (what the client sends on unrelated saves)
+  const resolved = (await alice.get(`/api/trips/${b.id}`)).body
+  await alice.put(`/api/trips/${b.id}`).send({ days: resolved.days })
+  // Now edit the target; the linker must reflect it (a stored copy would not)
+  await alice.put(`/api/trips/${a.id}`).send({
+    days: { '2026-07-18': { title: 'A day CHANGED', mapsUrl: '', items: linkedItems } },
+  })
+  const after = (await alice.get(`/api/trips/${b.id}`)).body
+  assert.equal(after.days['2026-07-18'].title, 'A day CHANGED')
+})
+
+test('PUT rejects malformed links', async () => {
+  const { b } = await makeLinkedPair()
+  const self = await alice.put(`/api/trips/${b.id}`).send({ days: { '2026-07-18': { linkedTripId: b.id } } })
+  assert.equal(self.status, 400)
+  const bad = await alice.put(`/api/trips/${b.id}`).send({ days: { '2026-07-18': { linkedTripId: '  ' } } })
+  assert.equal(bad.status, 400)
+})
+
+test('a deleted target resolves as a broken link, not an error', async () => {
+  const { a, b } = await makeLinkedPair()
+  await alice.delete(`/api/trips/${a.id}`)
+  const res = await alice.get(`/api/trips/${b.id}`)
+  const day = res.body.days['2026-07-18']
+  assert.equal(day.linkedBroken, true)
+  assert.deepEqual(day.items, [])
+  // ...and unrelated saves still work (the marker is preserved untouched)
+  const save = await alice.put(`/api/trips/${b.id}`).send({ days: res.body.days })
+  assert.equal(save.status, 200)
+})
+
+test('link chains are not followed', async () => {
+  const { a, b } = await makeLinkedPair()
+  // c links to b's linked day — resolving c must not chase b -> a
+  const c = (await alice.post('/api/trips').send({ name: 'Chain Trip' })).body
+  await alice.put(`/api/trips/${c.id}`).send({ days: { '2026-07-18': { linkedTripId: b.id } } })
+  const res = await alice.get(`/api/trips/${c.id}`)
+  assert.equal(res.body.days['2026-07-18'].linkedBroken, true)
+  assert.equal(res.body.days['2026-07-18'].linkedTripId, b.id)
+  void a
+})
+
+test('linkedCanEdit reflects the viewer, not the linker', async () => {
+  const dave = request.agent(app)
+  await dave.post('/api/auth/register').send({ username: 'dave', password: 'correct horse' })
+  const { a, b } = await makeLinkedPair()
+  await alice.put(`/api/trips/${b.id}`).send({ sharedWith: ['dave'] })
+  const res = await dave.get(`/api/trips/${b.id}`)
+  const day = res.body.days['2026-07-18']
+  assert.equal(day.linkedCanEdit, false) // dave cannot edit trip A
+  assert.equal(day.items[0].title, 'Shared stop') // but sees the content
+  void a
+})
+
+test('unlinking stores a plain day again', async () => {
+  const { b } = await makeLinkedPair()
+  const resolved = (await alice.get(`/api/trips/${b.id}`)).body
+  await alice.put(`/api/trips/${b.id}`).send({
+    days: { ...resolved.days, '2026-07-18': { title: '', mapsUrl: '', items: [] } },
+  })
+  const after = (await alice.get(`/api/trips/${b.id}`)).body
+  assert.ok(!after.days['2026-07-18'].linkedTripId)
+  assert.deepEqual(after.days['2026-07-18'].items, [])
+})
+
 test('trip ids are url-safe slugs derived from the name', async () => {
   const created = await alice.post('/api/trips').send({ name: 'Grand Cañón & Back!' })
   assert.match(created.body.id, /^[a-z0-9-]+$/)

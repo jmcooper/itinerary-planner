@@ -6,29 +6,11 @@ import { fileURLToPath } from 'node:url'
 import { createStorage } from './storage.js'
 import { createAuth, USERNAME_RE, MIN_PASSWORD_LENGTH } from './auth.js'
 import { normalizeHotelStays } from './hotels.js'
+import { canView, canEdit, isOwner } from './permissions.js'
+import { normalizeLinkedDay, validateLinkedDay, resolveTripDays } from './links.js'
 
 // Slugs that would collide with app routes ("/trips/new") or API routes.
 const RESERVED_SLUGS = new Set(['new', 'ai'])
-
-// Legacy trips (created before accounts existed) have no ownerId; they are
-// treated as public and any signed-in user may edit or delete them.
-function canView(trip, username) {
-  if (!trip.ownerId) return true
-  if (trip.visibility === 'public') return true
-  if (!username) return false
-  return trip.ownerId === username || (trip.sharedWith ?? []).includes(username)
-}
-
-function canEdit(trip, username) {
-  if (!username) return false
-  if (!trip.ownerId) return true
-  return trip.ownerId === username || (trip.sharedWith ?? []).includes(username)
-}
-
-function isOwner(trip, username) {
-  if (!username) return false
-  return trip.ownerId ? trip.ownerId === username : true
-}
 
 
 export function createApp(
@@ -239,7 +221,8 @@ export function createApp(
       await storage.writeTrip(copy)
       const images = await storage.readImages(trip.id)
       if (Object.keys(images).length > 0) await storage.writeImages(copy.id, images)
-      res.status(201).json(withPermissions(copy, req.username))
+      const resolvedCopy = await resolveTripDays(copy, { storage, username: req.username })
+      res.status(201).json(withPermissions(resolvedCopy, req.username))
     })
   )
 
@@ -270,7 +253,8 @@ export function createApp(
     wrap(async (req, res) => {
       const trip = await loadViewableTrip(req, res)
       if (!trip) return
-      res.json(withPermissions(trip, req.username))
+      const resolved = await resolveTripDays(trip, { storage, username: req.username })
+      res.json(withPermissions(resolved, req.username))
     })
   )
 
@@ -348,7 +332,15 @@ export function createApp(
           return res.status(400).json({ error: 'days must be an object keyed by date' })
         if (Object.keys(body.days).some((d) => !/^\d{4}-\d{2}-\d{2}$/.test(d)))
           return res.status(400).json({ error: 'days keys must be YYYY-MM-DD dates' })
-        trip.days = body.days
+        // Linked days round-trip from GET with resolved content; store only
+        // the marker so the target trip stays the single source of truth.
+        const days = {}
+        for (const [date, day] of Object.entries(body.days)) {
+          const problem = validateLinkedDay(day, trip.id)
+          if (problem) return res.status(400).json({ error: problem })
+          days[date] = normalizeLinkedDay(day)
+        }
+        trip.days = days
       }
       if ('hotelStays' in body) {
         const { stays, error } = normalizeHotelStays(body.hotelStays)
@@ -357,7 +349,10 @@ export function createApp(
       }
       trip.updatedAt = new Date().toISOString()
       await storage.writeTrip(trip)
-      res.json(withPermissions(trip, req.username))
+      // Responses always carry resolved days, like GET — the client keeps
+      // rendering from whatever trip object it last received.
+      const resolved = await resolveTripDays(trip, { storage, username: req.username })
+      res.json(withPermissions(resolved, req.username))
     })
   )
 
@@ -484,8 +479,11 @@ export function createApp(
             chatTimeoutMs
           )
         })
+        // The agent sees linked days as ordinary content (resolved), and the
+        // tool write-through uses the username for target-trip permission.
+        const resolvedTrip = await resolveTripDays(trip, { storage, username: req.username })
         const updated = await Promise.race([
-          agent.respond({ model, trip, messages, storage, emit }),
+          agent.respond({ model, trip: resolvedTrip, messages, storage, emit, username: req.username }),
           timeout,
         ])
         await storage.writeChat(trip.id, { messages: updated })

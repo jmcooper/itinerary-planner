@@ -2000,10 +2000,63 @@ label {
   text-decoration: underline;
 }
 
-/* Inside a Save/Cancel row the quiet link sits at the far right */
-.form-actions .quiet-toggle {
+/* Quiet links sit at the far right of a Save/Cancel row */
+.form-actions-extra {
   margin-left: auto;
   align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* ---------- Linked days ---------- */
+
+.linked-day-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+  padding: 0.4rem 0.8rem;
+  background: var(--primary-soft);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+}
+
+.linked-day-note a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.link-day-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.link-day-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.link-day-select select {
+  font: inherit;
+  font-weight: 400;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  background: var(--card);
+}
+
+.link-day-note {
+  margin: 0;
+  font-size: 0.85rem;
 }
 
 .day-add-item {

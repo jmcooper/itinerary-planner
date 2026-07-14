@@ -3,7 +3,7 @@ import { formatTimeBlock, formatDuration, parseTimeInput } from '../lib/time.js'
 import Markdown from './Markdown.jsx'
 import ItemImages from './ItemImages.jsx'
 
-export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }) {
+export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete, editExtraActions = null }) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const travelDuration = item.travel ? formatDuration(item) : ''
@@ -39,6 +39,7 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }
                 await onSave(updated)
                 setEditing(false)
               }}
+              extraActions={editExtraActions}
             />
           ) : (
             <div className="itin-details-body">
@@ -152,7 +153,7 @@ export function ItemEditForm({ item, onSave, onCancel, extraActions = null }) {
         <button type="button" className="btn btn-ghost btn-small" onClick={onCancel}>
           Cancel
         </button>
-        {extraActions}
+        {extraActions && <span className="form-actions-extra">{extraActions}</span>}
       </div>
     </form>
   )

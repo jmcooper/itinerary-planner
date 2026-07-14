@@ -8,6 +8,8 @@ import { anthropic } from '@genkit-ai/anthropic'
 import { googleAI } from '@genkit-ai/google-genai'
 import { buildMapsUrl } from './timeblocks.js'
 import { normalizeHotelStays } from './hotels.js'
+import { isLinkedDay } from './links.js'
+import { canEdit } from './permissions.js'
 
 // Load .env by explicit path (server/.env, then the repo root) so the keys are
 // found no matter which directory the server is launched from. Real
@@ -85,8 +87,32 @@ const itineraryUpdateSchema = z.object({
     ),
 })
 
+// Replaces one day on a trip object (in place), carrying forward imageIds by
+// item title and the day's hotelNotNeeded flag unless explicitly set.
+function applyDayReplacement(trip, day) {
+  const existing = trip.days[day.date]?.items ?? []
+  const imagesByTitle = new Map(existing.map((it) => [it.title, it.imageIds ?? []]))
+  const hotelNotNeeded = day.hotelNotNeeded ?? trip.days[day.date]?.hotelNotNeeded
+  trip.days[day.date] = {
+    title: day.title,
+    mapsUrl: buildMapsUrl(day.waypoints),
+    items: day.items.map((item) => ({
+      timeStart: item.timeStart ?? null,
+      timeEnd: item.timeEnd ?? null,
+      timeLabel: null,
+      title: item.title,
+      description: item.description,
+      travel: item.travel === true,
+      imageIds: imagesByTitle.get(item.title) ?? [],
+    })),
+    ...(hotelNotNeeded ? { hotelNotNeeded: true } : {}),
+  }
+}
+
 // Applies an updateItinerary tool call to the stored trip. Exported for tests.
-export async function applyItineraryUpdate(input, { storage, tripId }) {
+// Days stored as links ({ linkedTripId }) are written through to the target
+// trip so the link survives — the model never needs to know links exist.
+export async function applyItineraryUpdate(input, { storage, tripId, username = null }) {
   const trip = await storage.readTrip(tripId)
   if (!trip) throw new Error(`trip ${tripId} not found`)
   // A call with no fields must fail loudly (but not throw — Genkit aborts the
@@ -129,27 +155,43 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
   if (typeof input.summary === 'string') trip.summary = input.summary
   trip.days = trip.days ?? {}
   const savedDays = []
+  // Linked days write through to their target trip, grouped so each target
+  // is read and written once. A broken link (target gone, date missing, or
+  // chained link) falls back to a local replacement — the link was already
+  // dead, and the model's content must not be dropped.
+  const writeThrough = new Map() // linkedTripId -> { target, days: [] }
   for (const day of input.days ?? []) {
-    const existing = trip.days[day.date]?.items ?? []
-    const imagesByTitle = new Map(existing.map((it) => [it.title, it.imageIds ?? []]))
-    // hotelNotNeeded carries forward on full replacement (like imageIds)
-    // unless the input sets it explicitly.
-    const hotelNotNeeded = day.hotelNotNeeded ?? trip.days[day.date]?.hotelNotNeeded
-    trip.days[day.date] = {
-      title: day.title,
-      mapsUrl: buildMapsUrl(day.waypoints),
-      items: day.items.map((item) => ({
-        timeStart: item.timeStart ?? null,
-        timeEnd: item.timeEnd ?? null,
-        timeLabel: null,
-        title: item.title,
-        description: item.description,
-        travel: item.travel === true,
-        imageIds: imagesByTitle.get(item.title) ?? [],
-      })),
-      ...(hotelNotNeeded ? { hotelNotNeeded: true } : {}),
+    const stored = trip.days[day.date]
+    if (isLinkedDay(stored)) {
+      const entry =
+        writeThrough.get(stored.linkedTripId) ??
+        writeThrough.set(stored.linkedTripId, {
+          target: await storage.readTrip(stored.linkedTripId).catch(() => null),
+          days: [],
+        }).get(stored.linkedTripId)
+      const targetDay = entry.target?.days?.[day.date]
+      if (entry.target && targetDay && !isLinkedDay(targetDay)) {
+        if (username && !canEdit(entry.target, username)) {
+          return {
+            ok: false,
+            savedDays: [],
+            removedDays: [],
+            error: `The day ${day.date} could not be changed — it belongs to the trip "${entry.target.name}", which this user cannot edit. Other requested changes were not applied; retry without ${day.date}.`,
+          }
+        }
+        entry.days.push(day)
+        savedDays.push(day.date)
+        continue
+      }
     }
+    applyDayReplacement(trip, day)
     savedDays.push(day.date)
+  }
+  for (const { target, days } of writeThrough.values()) {
+    if (!target || days.length === 0) continue
+    for (const day of days) applyDayReplacement(target, day)
+    target.updatedAt = new Date().toISOString()
+    await storage.writeTrip(target)
   }
   const removedDays = []
   for (const date of input.removeDates ?? []) {
@@ -435,7 +477,7 @@ export function createAiAgent(env = process.env) {
   return {
     enabled: true,
     listModels,
-    async respond({ model, trip, messages, storage, emit }) {
+    async respond({ model, trip, messages, storage, emit, username = null }) {
       const { stream, response } = ai.generateStream({
         model,
         system: systemPrompt(trip),
@@ -445,7 +487,7 @@ export function createAiAgent(env = process.env) {
         messages: compactHistoryForModel(sanitizeChatMessages(messages)),
         tools: [updateItinerary],
         maxTurns: 24,
-        context: { storage, tripId: trip.id, emit },
+        context: { storage, tripId: trip.id, emit, username },
       })
       for await (const chunk of stream) {
         if (chunk.text) emit('text', { text: chunk.text })

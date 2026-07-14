@@ -200,6 +200,105 @@ test('applyItineraryUpdate returns ok:false (not throw) for invalid stays', asyn
   assert.equal(after.updatedAt, before.updatedAt) // nothing written
 })
 
+// ---- Linked-day write-through ----
+
+async function seedLinkedPair(suffix) {
+  const targetId = `target-${suffix}`
+  const linkerId = `linker-${suffix}`
+  await storage.writeTrip({
+    id: targetId,
+    name: 'Target Trip',
+    ownerId: 'alice',
+    days: {
+      '2026-07-18': {
+        title: 'Original day',
+        mapsUrl: '',
+        items: [
+          { timeStart: '09:00', timeEnd: null, timeLabel: null, title: 'Shared stop', description: 'old', imageIds: ['img_linked'] },
+        ],
+      },
+    },
+    createdAt: '2026-07-13T00:00:00.000Z',
+    updatedAt: '2026-07-13T00:00:00.000Z',
+  })
+  await storage.writeTrip({
+    id: linkerId,
+    name: 'Linker Trip',
+    ownerId: 'bob',
+    sharedWith: [],
+    days: { '2026-07-18': { linkedTripId: targetId } },
+    createdAt: '2026-07-13T00:00:00.000Z',
+    updatedAt: '2026-07-13T00:00:00.000Z',
+  })
+  return { targetId, linkerId }
+}
+
+const linkedDayInput = () => ({
+  days: [
+    {
+      date: '2026-07-18',
+      title: 'Rewritten day',
+      waypoints: ['A', 'B'],
+      items: [
+        { timeStart: '10:00', timeEnd: null, title: 'Shared stop', description: 'new details' },
+      ],
+    },
+  ],
+})
+
+test('linked day edits write through to the target trip, keeping the link', async () => {
+  const { targetId, linkerId } = await seedLinkedPair('wt')
+  const result = await applyItineraryUpdate(linkedDayInput(), { storage, tripId: linkerId })
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.savedDays, ['2026-07-18'])
+
+  const target = await storage.readTrip(targetId)
+  assert.equal(target.days['2026-07-18'].title, 'Rewritten day')
+  assert.equal(target.days['2026-07-18'].items[0].description, 'new details')
+  // imageIds carried forward from the TARGET's items by title
+  assert.deepEqual(target.days['2026-07-18'].items[0].imageIds, ['img_linked'])
+
+  const linker = await storage.readTrip(linkerId)
+  assert.deepEqual(linker.days['2026-07-18'], { linkedTripId: targetId }) // marker intact
+})
+
+test('write-through refuses when the user cannot edit the target', async () => {
+  const { targetId, linkerId } = await seedLinkedPair('perm')
+  const result = await applyItineraryUpdate(linkedDayInput(), {
+    storage,
+    tripId: linkerId,
+    username: 'bob', // owns the linker but not the target
+  })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /Target Trip/)
+  const target = await storage.readTrip(targetId)
+  assert.equal(target.days['2026-07-18'].title, 'Original day') // untouched
+})
+
+test('a broken link is replaced locally instead of dropping the content', async () => {
+  const { linkerId } = await seedLinkedPair('broken')
+  const linker = await storage.readTrip(linkerId)
+  linker.days['2026-07-18'] = { linkedTripId: 'no-such-trip' }
+  await storage.writeTrip(linker)
+
+  const result = await applyItineraryUpdate(linkedDayInput(), { storage, tripId: linkerId })
+  assert.equal(result.ok, true)
+  const after = await storage.readTrip(linkerId)
+  assert.equal(after.days['2026-07-18'].title, 'Rewritten day')
+  assert.ok(!after.days['2026-07-18'].linkedTripId)
+})
+
+test('removing a linked day removes only the link, not the target day', async () => {
+  const { targetId, linkerId } = await seedLinkedPair('rm')
+  const result = await applyItineraryUpdate(
+    { removeDates: ['2026-07-18'] },
+    { storage, tripId: linkerId }
+  )
+  assert.deepEqual(result.removedDays, ['2026-07-18'])
+  assert.ok(!('2026-07-18' in (await storage.readTrip(linkerId)).days))
+  assert.equal((await storage.readTrip(targetId)).days['2026-07-18'].title, 'Original day')
+})
+
 test('day replacement carries hotelNotNeeded forward; explicit value wins', async () => {
   // seed the flag on the existing day
   const flagged = baseInput()

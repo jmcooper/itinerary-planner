@@ -63,13 +63,32 @@ export default function TripPage() {
     }
   }
 
-  // The day-level "no hotel needed this night" flag rides inside the day entry.
-  async function setHotelNotNeeded(date, flag) {
-    const day = { ...(trip.days?.[date] ?? {}) }
-    if (flag) day.hotelNotNeeded = true
-    else delete day.hotelNotNeeded
-    await saveTrip({ days: { ...trip.days, [date]: day } })
+  // Saves a patch onto one day. Linked days write through to the target trip
+  // (the marker stored here is untouched — the target stays the single
+  // source of truth); plain days merge into this trip as usual.
+  async function saveDay(date, patch) {
+    const current = trip.days?.[date] ?? {}
+    const merged = { ...current, ...patch }
+    if (!merged.hotelNotNeeded) delete merged.hotelNotNeeded
+    if (current.linkedTripId && !current.linkedBroken) {
+      const { linkedTripId, linkedTripName, linkedCanEdit, linkedBroken, ...content } = merged
+      const target = await api.getTrip(current.linkedTripId)
+      await api.updateTrip(target.id, { days: { ...target.days, [date]: content } })
+      await refreshTrip() // re-resolve the link
+      return
+    }
+    await saveTrip({ days: { ...trip.days, [date]: merged } })
   }
+
+  // The day-level "no hotel needed this night" flag rides inside the day entry.
+  const setHotelNotNeeded = (date, flag) => saveDay(date, { hotelNotNeeded: flag })
+
+  // Linking stores only a marker; unlinking restores a plain empty day (the
+  // linked trip keeps its itinerary either way).
+  const linkDay = (date, targetTripId) =>
+    saveTrip({ days: { ...trip.days, [date]: { linkedTripId: targetTripId } } })
+  const unlinkDay = (date) =>
+    saveTrip({ days: { ...trip.days, [date]: { title: '', mapsUrl: '', items: [] } } })
 
   // Removes a day entirely; remaining days keep their dates (gaps are fine).
   async function deleteDay(date) {
@@ -183,14 +202,9 @@ export default function TripPage() {
             onOpenStay={(stay) => setHotelModal({ type: 'stay', stay })}
             onAddStay={() => setHotelModal({ type: 'add', prefillCheckIn: selectedDate })}
             onSetHotelNotNeeded={(flag) => setHotelNotNeeded(selectedDate, flag)}
-            onSaveDay={(patch) =>
-              saveTrip({
-                days: {
-                  ...trip.days,
-                  [selectedDate]: { ...(trip.days?.[selectedDate] ?? {}), ...patch },
-                },
-              })
-            }
+            onSaveDay={(patch) => saveDay(selectedDate, patch)}
+            onLinkDay={(targetTripId) => linkDay(selectedDate, targetTripId)}
+            onUnlinkDay={() => unlinkDay(selectedDate)}
             onDeleteDay={() => deleteDay(selectedDate)}
           />
         ) : (

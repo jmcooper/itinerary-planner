@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { api } from '../api.js'
 import { formatDay } from '../lib/dates.js'
 import { buildDayItems } from '../lib/parse.js'
 import { convertImportItems, insertItemByTime } from '../lib/time.js'
@@ -19,17 +21,32 @@ export default function DayView({
   onOpenStay,
   onAddStay,
   onSetHotelNotNeeded,
+  onLinkDay,
+  onUnlinkDay,
 }) {
+  const [linking, setLinking] = useState(false)
   const { weekday, label, year } = formatDay(date)
   const heading = `Day ${dayIndex + 1} — ${weekday}, ${label}, ${year}`
   const items = day.items ?? []
   const onSaveItems = (nextItems) => onSaveDay({ items: nextItems })
+  const isLinked = Boolean(day.linkedTripId)
+  // Editing a linked day writes through to the target trip, so it also
+  // requires edit rights there.
+  const dayCanEdit = canEdit && (!isLinked || day.linkedCanEdit === true)
+  // Images on a linked day's items live in the target trip's image store.
+  const imagesTripId = isLinked && !day.linkedBroken ? day.linkedTripId : tripId
   const needsHotel = missingStay && !day.hotelNotNeeded
   // Check-out icons render before check-in icons by design.
   const hotelMarks = [
     ...checkOutStays.map((stay) => ({ stay, out: true })),
     ...checkInStays.map((stay) => ({ stay, out: false })),
   ]
+  const linkAction =
+    dayCanEdit && onLinkDay && !isLinked ? (
+      <button type="button" className="quiet-toggle" onClick={() => setLinking(true)}>
+        Link to another itinerary
+      </button>
+    ) : null
 
   function handleDelete() {
     if (
@@ -60,63 +77,108 @@ export default function DayView({
               </button>
             ))}
           </div>
-          <DayTitle title={day.title ?? ''} canEdit={canEdit} onSave={(title) => onSaveDay({ title })} />
+          <DayTitle title={day.title ?? ''} canEdit={dayCanEdit} onSave={(title) => onSaveDay({ title })} />
         </div>
         <MapsLink
           mapsUrl={day.mapsUrl ?? ''}
-          canEdit={canEdit}
+          canEdit={dayCanEdit}
           onSave={(mapsUrl) => onSaveDay({ mapsUrl })}
         />
       </div>
-      {needsHotel ? (
-        <div className="hotel-warning">
-          <span>No hotel stay covers this night.</span>
-          {canEdit && (
-            <span className="hotel-warning-actions">
-              <button type="button" className="btn btn-ghost btn-small" onClick={onAddStay}>
-                Add hotel stay
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-small"
-                onClick={() => onSetHotelNotNeeded?.(true)}
-              >
-                Hotel stay not needed this day
-              </button>
+      {isLinked && (
+        <div className="linked-day-note">
+          {day.linkedBroken ? (
+            <span>
+              Linked itinerary
+              {day.linkedTripName ? ` “${day.linkedTripName}”` : ''} is unavailable.
+            </span>
+          ) : (
+            <span>
+              Linked to <Link to={`/trips/${day.linkedTripId}`}>{day.linkedTripName}</Link>
             </span>
           )}
-        </div>
-      ) : day.hotelNotNeeded ? (
-        <p className="hotel-not-needed-note muted">
-          No hotel needed this night.
-          {canEdit && (
-            <button type="button" className="btn btn-link" onClick={() => onSetHotelNotNeeded?.(false)}>
-              Undo
+          {canEdit && onUnlinkDay && (
+            <button
+              type="button"
+              className="quiet-toggle"
+              onClick={() => {
+                if (window.confirm('Unlink this day? It becomes an empty day here; the linked trip keeps its itinerary.'))
+                  onUnlinkDay()
+              }}
+            >
+              Unlink
             </button>
           )}
-        </p>
-      ) : null}
-      {items.length === 0 ? (
-        canEdit ? (
-          <>
-            <EmptyDayEditor onSaveItems={onSaveItems} />
-            {onDeleteDay && (
-              <div className="day-table-footer">
-                <DeleteDayButton onClick={handleDelete} />
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="empty-note">No itinerary for this day yet.</p>
-        )
+        </div>
+      )}
+      {linking ? (
+        <div className="day-add-item">
+          <LinkDayForm
+            tripId={tripId}
+            date={date}
+            onLink={async (targetId) => {
+              await onLinkDay(targetId)
+              setLinking(false)
+            }}
+            onCancel={() => setLinking(false)}
+          />
+        </div>
       ) : (
-        <DayTable
-          tripId={tripId}
-          items={items}
-          canEdit={canEdit}
-          onSaveItems={onSaveItems}
-          onDeleteDay={onDeleteDay ? handleDelete : null}
-        />
+        <>
+          {needsHotel ? (
+            <div className="hotel-warning">
+              <span>No hotel stay covers this night.</span>
+              {canEdit && (
+                <span className="hotel-warning-actions">
+                  <button type="button" className="btn btn-ghost btn-small" onClick={onAddStay}>
+                    Add hotel stay
+                  </button>
+                  {dayCanEdit && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-small"
+                      onClick={() => onSetHotelNotNeeded?.(true)}
+                    >
+                      Hotel stay not needed this day
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
+          ) : day.hotelNotNeeded ? (
+            <p className="hotel-not-needed-note muted">
+              No hotel needed this night.
+              {dayCanEdit && (
+                <button type="button" className="btn btn-link" onClick={() => onSetHotelNotNeeded?.(false)}>
+                  Undo
+                </button>
+              )}
+            </p>
+          ) : null}
+          {items.length === 0 ? (
+            dayCanEdit ? (
+              <>
+                <EmptyDayEditor onSaveItems={onSaveItems} linkAction={linkAction} />
+                {onDeleteDay && (
+                  <div className="day-table-footer">
+                    <DeleteDayButton onClick={handleDelete} />
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="empty-note">No itinerary for this day yet.</p>
+            )
+          ) : (
+            <DayTable
+              tripId={imagesTripId}
+              items={items}
+              canEdit={dayCanEdit}
+              onSaveItems={onSaveItems}
+              onDeleteDay={canEdit && onDeleteDay ? handleDelete : null}
+              linkAction={linkAction}
+            />
+          )}
+        </>
       )}
     </div>
   )
@@ -293,7 +355,7 @@ const newItem = () => ({
 
 // Empty-day editor: items are added one at a time; the legacy CSV/markdown
 // paste flow stays available behind a quiet link.
-function EmptyDayEditor({ onSaveItems }) {
+function EmptyDayEditor({ onSaveItems, linkAction = null }) {
   const [mode, setMode] = useState('menu') // 'menu' | 'add' | 'paste'
 
   if (mode === 'paste') {
@@ -316,9 +378,12 @@ function EmptyDayEditor({ onSaveItems }) {
           onSave={(item) => onSaveItems([item])}
           onCancel={() => setMode('menu')}
           extraActions={
-            <button type="button" className="quiet-toggle" onClick={() => setMode('paste')}>
-              Use old CSV flow
-            </button>
+            <>
+              {linkAction}
+              <button type="button" className="quiet-toggle" onClick={() => setMode('paste')}>
+                Use old CSV flow
+              </button>
+            </>
           }
         />
       </div>
@@ -402,7 +467,7 @@ function DayImportForm({ onSave }) {
   )
 }
 
-function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
+function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay, linkAction = null }) {
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
 
@@ -432,6 +497,7 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
             canEdit={canEdit}
             onSave={(u) => saveItem(index, u)}
             onDelete={() => deleteItem(index)}
+            editExtraActions={linkAction}
           />
         ))}
       </ul>
@@ -445,6 +511,7 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
               setAdding(false)
             }}
             onCancel={() => setAdding(false)}
+            extraActions={linkAction}
           />
         </div>
       )}
@@ -463,5 +530,99 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
         </div>
       )}
     </div>
+  )
+}
+
+// Replaces the edit dialog when "Link to another itinerary" is clicked: a
+// dropdown of the user's other trips, filtered to those that also contain
+// this date. Linking stores only a marker here — the selected trip's day
+// stays the single source of truth.
+function LinkDayForm({ tripId, date, onLink, onCancel }) {
+  const [options, setOptions] = useState(null) // null = loading
+  const [selected, setSelected] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const { weekday, label } = formatDay(date)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const lists = await api.listTrips()
+        const candidates = [...lists.mine, ...lists.shared].filter((t) => t.id !== tripId)
+        const withDate = []
+        for (const candidate of candidates) {
+          try {
+            const full = await api.getTrip(candidate.id)
+            const target = full.days?.[date]
+            // Only trips that contain this date; linked days can't chain.
+            if (target && !target.linkedTripId) withDate.push({ id: full.id, name: full.name })
+          } catch {
+            // skip trips that fail to load
+          }
+        }
+        if (cancelled) return
+        setOptions(withDate)
+        setSelected(withDate[0]?.id ?? '')
+      } catch (err) {
+        if (cancelled) return
+        setError(err.message)
+        setOptions([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [tripId, date])
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!selected) return
+    setSaving(true)
+    setError('')
+    try {
+      await onLink(selected)
+    } catch (err) {
+      setError(err.message)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form className="link-day-form" onSubmit={handleSubmit}>
+      {options === null ? (
+        <p className="muted">Finding trips that include {weekday}, {label}…</p>
+      ) : options.length === 0 ? (
+        <p className="muted">None of your other trips include {weekday}, {label}.</p>
+      ) : (
+        <>
+          <label className="link-day-select">
+            Link this day to
+            <select value={selected} onChange={(e) => setSelected(e.target.value)}>
+              {options.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="muted link-day-note">
+            This day will show that trip's itinerary for {weekday}, {label}. Edits made here
+            update that trip directly.
+          </p>
+        </>
+      )}
+      {error && <p className="error">{error}</p>}
+      <div className="form-actions">
+        {options !== null && options.length > 0 && (
+          <button type="submit" className="btn btn-primary btn-small" disabled={saving || !selected}>
+            {saving ? 'Linking…' : 'Link Day'}
+          </button>
+        )}
+        <button type="button" className="btn btn-ghost btn-small" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
   )
 }
