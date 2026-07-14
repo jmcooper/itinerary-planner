@@ -159,9 +159,9 @@ export default function DayView({
             dayCanEdit ? (
               <>
                 <EmptyDayEditor onSaveItems={onSaveItems} />
+                {linkAction && <p className="day-link-row">{linkAction}</p>}
                 {onDeleteDay && (
                   <div className="day-table-footer">
-                    {linkAction}
                     <DeleteDayButton onClick={handleDelete} />
                   </div>
                 )}
@@ -511,9 +511,9 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay, linkAction
           />
         </div>
       )}
+      {canEdit && linkAction && <p className="day-link-row">{linkAction}</p>}
       {canEdit && (
         <div className="day-table-footer">
-          {linkAction}
           {onDeleteDay && <DeleteDayButton onClick={onDeleteDay} />}
           {!adding && (
             <button

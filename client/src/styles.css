@@ -1561,10 +1561,18 @@ label {
   padding: 0.45rem 0.9rem;
 }
 
-.day-table-footer .quiet-toggle {
-  align-self: center;
-  margin-right: 6px;
-  white-space: nowrap;
+/* Whole-day actions row (e.g. link-to-itinerary), above the footer buttons */
+.day-link-row {
+  text-align: left;
+  margin: 0.9rem 0 0;
+}
+
+.day-link-row .quiet-toggle {
+  padding: 0;
+}
+
+.day-link-row + .day-table-footer {
+  margin-top: 0.5rem;
 }
 
 .itin-item-actions {
