@@ -118,9 +118,18 @@ export default function TripPage() {
     )
     const goingPublic = patch.visibility === 'public' && trip.visibility !== 'public'
     if (linkedTripIds.length > 0 && (addedUsers.length > 0 || goingPublic)) {
+      // Resolved days carry the linked trip's name for display.
+      const linkedNames = [
+        ...new Set(
+          Object.values(trip.days ?? {})
+            .filter((d) => d.linkedTripId && d.linkedTripName)
+            .map((d) => d.linkedTripName)
+        ),
+      ]
+      const nameList = linkedNames.map((n) => `  • ${n}`).join('\n')
       const message = goingPublic
-        ? 'Days in this trip are linked to other itineraries. Making this trip public will also make those itineraries public. Continue?'
-        : 'Days in this trip are linked to other itineraries. Those itineraries will also be shared with the selected user. Continue?'
+        ? `Days in this trip are linked to other itineraries. Making this trip public will also make these itineraries public:\n\n${nameList}\n\nContinue?`
+        : `Days in this trip are linked to other itineraries. These itineraries will also be shared with the selected user:\n\n${nameList}\n\nContinue?`
       if (!window.confirm(message)) return trip
       const updated = await saveTrip(patch)
       for (const id of linkedTripIds) {
