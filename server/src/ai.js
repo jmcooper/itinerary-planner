@@ -18,9 +18,14 @@ dotenv.config({ path: path.join(here, '../../.env'), quiet: true })
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
+// All fields are optional: the tool applies only what's provided, so the model
+// can make partial updates (summary-only, rename-only, remove-only).
 const itineraryUpdateSchema = z.object({
   tripName: z.string().min(1).optional().describe('Set or update the trip name'),
-  summary: z.string().describe('A brief 1-3 sentence description of the itinerary'),
+  summary: z
+    .string()
+    .optional()
+    .describe('Set or update the brief 1-3 sentence description of the itinerary'),
   days: z
     .array(
       z.object({
@@ -41,6 +46,7 @@ const itineraryUpdateSchema = z.object({
         ),
       })
     )
+    .optional()
     .describe('Full replacement for each listed day; days not listed are left unchanged'),
   removeDates: z
     .array(z.string())
@@ -52,7 +58,7 @@ const itineraryUpdateSchema = z.object({
 export async function applyItineraryUpdate(input, { storage, tripId }) {
   const trip = await storage.readTrip(tripId)
   if (!trip) throw new Error(`trip ${tripId} not found`)
-  for (const day of input.days) {
+  for (const day of input.days ?? []) {
     if (!DATE_RE.test(day.date)) throw new Error(`invalid day date: ${day.date} — use YYYY-MM-DD`)
     for (const item of day.items) {
       for (const key of ['timeStart', 'timeEnd']) {
@@ -65,10 +71,10 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
     if (!DATE_RE.test(date)) throw new Error(`invalid removeDates entry: ${date} — use YYYY-MM-DD`)
   }
   if (input.tripName) trip.name = input.tripName.trim()
-  trip.summary = input.summary
+  if (typeof input.summary === 'string') trip.summary = input.summary
   trip.days = trip.days ?? {}
   const savedDays = []
-  for (const day of input.days) {
+  for (const day of input.days ?? []) {
     const existing = trip.days[day.date]?.items ?? []
     const imagesByTitle = new Map(existing.map((it) => [it.title, it.imageIds ?? []]))
     trip.days[day.date] = {
@@ -288,7 +294,7 @@ export function createAiAgent(env = process.env) {
     {
       name: 'updateItinerary',
       description:
-        'Create or update the trip itinerary. Replaces each listed day entirely; unlisted days are untouched. Also sets the trip name, summary, and date range.',
+        'Create or update the trip itinerary. All fields are optional — only what you provide is applied. Each listed day is replaced entirely; unlisted days are untouched. Can also set the trip name and summary, and delete days via removeDates.',
       inputSchema: itineraryUpdateSchema,
       outputSchema: z.object({
         ok: z.boolean(),

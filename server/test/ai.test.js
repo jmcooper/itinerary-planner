@@ -80,6 +80,34 @@ test('applyItineraryUpdate writes days, name, summary, maps link', async () => {
   assert.deepEqual(day.items[1].imageIds, [])
 })
 
+test('applyItineraryUpdate applies partial updates (summary only)', async () => {
+  await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
+  const before = await storage.readTrip('yellowstone')
+
+  const result = await applyItineraryUpdate(
+    { summary: 'Just a new summary' },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.deepEqual(result, { ok: true, savedDays: [], removedDays: [] })
+  const after = await storage.readTrip('yellowstone')
+  assert.equal(after.summary, 'Just a new summary')
+  assert.equal(after.name, before.name)
+  assert.deepEqual(after.days, before.days)
+})
+
+test('applyItineraryUpdate handles removeDates without days or summary', async () => {
+  await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
+  const before = await storage.readTrip('yellowstone')
+  const result = await applyItineraryUpdate(
+    { removeDates: ['2026-07-01'] },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.deepEqual(result, { ok: true, savedDays: [], removedDays: ['2026-07-01'] })
+  const after = await storage.readTrip('yellowstone')
+  assert.ok(!('2026-07-01' in after.days))
+  assert.equal(after.summary, before.summary) // untouched without an explicit summary
+})
+
 test('applyItineraryUpdate removes days listed in removeDates', async () => {
   await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
   const input = { summary: 'One day now', days: [], removeDates: ['2026-07-01', '2026-07-09'] }
