@@ -1,5 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimeBlock, parseTimeInput, convertImportItems } from './time.js'
+import { formatTimeBlock, parseTimeInput, convertImportItems, formatDuration } from './time.js'
+
+describe('formatDuration', () => {
+  it('formats the span between timeStart and timeEnd', () => {
+    expect(formatDuration({ timeStart: '12:30', timeEnd: '12:45' })).toBe('15 min')
+    expect(formatDuration({ timeStart: '09:00', timeEnd: '10:00' })).toBe('1 hr')
+    expect(formatDuration({ timeStart: '09:00', timeEnd: '10:20' })).toBe('1 hr 20 min')
+  })
+  it('returns empty when times are missing or reversed', () => {
+    expect(formatDuration({ timeStart: '09:00', timeEnd: null })).toBe('')
+    expect(formatDuration({ timeStart: null, timeEnd: null })).toBe('')
+    expect(formatDuration({ timeStart: '10:00', timeEnd: '09:00' })).toBe('')
+  })
+})
 
 describe('formatTimeBlock', () => {
   it('formats ranges in 12-hour style', () => {

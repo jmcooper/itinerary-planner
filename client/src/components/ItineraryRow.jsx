@@ -1,22 +1,32 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { formatTimeBlock, parseTimeInput } from '../lib/time.js'
+import { formatTimeBlock, formatDuration, parseTimeInput } from '../lib/time.js'
 import ItemImages from './ItemImages.jsx'
 
 export default function ItineraryRow({ tripId, item, canEdit, onSave }) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
+  const travelDuration = item.travel ? formatDuration(item) : ''
 
   return (
-    <li className={`itin-row${expanded ? ' expanded' : ''}`}>
+    <li className={`itin-row${item.travel ? ' travel' : ''}${expanded ? ' expanded' : ''}`}>
       <button
         type="button"
         className="itin-row-line"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
-        <span className="itin-time">{formatTimeBlock(item)}</span>
-        <span className="itin-plan">{item.title}</span>
+        {item.travel ? (
+          <span className="itin-travel-label">
+            {item.title}
+            {travelDuration && <span className="itin-travel-duration"> · {travelDuration}</span>}
+          </span>
+        ) : (
+          <>
+            <span className="itin-time">{formatTimeBlock(item)}</span>
+            <span className="itin-plan">{item.title}</span>
+          </>
+        )}
         <span className="itin-caret" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
       </button>
       {expanded && (
@@ -65,6 +75,7 @@ function ItemEditForm({ item, onSave, onCancel }) {
   const [end, setEnd] = useState(item.timeEnd ? formatTimeBlock({ timeStart: item.timeEnd }) : '')
   const [title, setTitle] = useState(item.title)
   const [description, setDescription] = useState(item.description)
+  const [travel, setTravel] = useState(item.travel === true)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -87,6 +98,7 @@ function ItemEditForm({ item, onSave, onCancel }) {
         timeLabel: null,
         title: title.trim(),
         description,
+        travel,
       })
     } catch (err) {
       setError(err.message)
@@ -113,6 +125,10 @@ function ItemEditForm({ item, onSave, onCancel }) {
       <label>
         Details (markdown)
         <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={10} spellCheck={false} />
+      </label>
+      <label className="item-edit-travel">
+        <input type="checkbox" checked={travel} onChange={(e) => setTravel(e.target.checked)} />
+        Travel time — shows as a compact connector between events
       </label>
       {error && <p className="error">{error}</p>}
       <div className="form-actions">

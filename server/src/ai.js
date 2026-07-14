@@ -42,6 +42,12 @@ const itineraryUpdateSchema = z.object({
             timeEnd: z.string().nullable().describe('24h HH:MM or null'),
             title: z.string(),
             description: z.string().describe('Markdown details for this time block'),
+            travel: z
+              .boolean()
+              .optional()
+              .describe(
+                'True when this item is pure travel time between locations (driving, flying, transit). Travel items render as a compact connector between events.'
+              ),
           })
         ),
       })
@@ -86,6 +92,7 @@ export async function applyItineraryUpdate(input, { storage, tripId }) {
         timeLabel: null,
         title: item.title,
         description: item.description,
+        travel: item.travel === true,
         imageIds: imagesByTitle.get(item.title) ?? [],
       })),
     }
@@ -153,9 +160,11 @@ ${dayLines || '  (no days yet)'}
 
 Rules:
 - Whenever you create or change the itinerary, call the updateItinerary tool. Never describe an itinerary as saved unless the tool call succeeded.
+- Batch changes: one updateItinerary call can (and should) carry every affected day in its days array. Do not make a separate call per day.
 - Extract the trip name and the dates for each day from the user's description when creating a new itinerary.
 - To delete days (e.g. "drop day 2", "cut the last day"), pass their dates in removeDates. Days may be non-contiguous — deleting a middle day leaves a gap.
 - For each day, provide ordered waypoints (real place names, including where the day starts and ends) so the app can build a Google Maps link.
+- Mark items that are pure travel between locations (driving, flying, transit) with travel: true, a short title like "Drive to Biscuit Basin", and accurate timeStart/timeEnd so the app can show the duration. Do not mark stops that merely include some walking.
 - Item descriptions are markdown; keep them informative but compact (why it's worth doing, practical tips, distances/durations).
 - Plan realistic timings, driving distances, and pacing. Respect the traveler's stated constraints.
 - In your conversational reply, briefly summarize what you planned or changed — the app displays the full itinerary, so do not repeat it verbatim.
@@ -320,7 +329,7 @@ export function createAiAgent(env = process.env) {
         // (or by other models) replay cleanly.
         messages: sanitizeChatMessages(messages),
         tools: [updateItinerary],
-        maxTurns: 8,
+        maxTurns: 24,
         context: { storage, tripId: trip.id, emit },
       })
       for await (const chunk of stream) {

@@ -58,6 +58,7 @@ const baseInput = () => ({
       waypoints: ['West Yellowstone', 'Fountain Paint Pot', 'Old Faithful'],
       items: [
         { timeStart: '08:15', timeEnd: '08:45', title: 'Fountain Paint Pot', description: '**Great** stop.' },
+        { timeStart: '08:45', timeEnd: '09:00', title: 'Drive to Old Faithful', description: '', travel: true },
         { timeStart: null, timeEnd: null, title: 'Picnic lunch', description: 'Relax.' },
       ],
     },
@@ -73,11 +74,14 @@ test('applyItineraryUpdate writes days, name, summary, maps link', async () => {
   const day = trip.days['2026-07-01']
   assert.equal(day.title, 'West side geysers')
   assert.ok(day.mapsUrl.includes('origin=West%20Yellowstone'))
-  assert.equal(day.items.length, 2)
+  assert.equal(day.items.length, 3)
   assert.equal(day.items[0].timeStart, '08:15')
+  // travel flag persists; absent means false
+  assert.equal(day.items[0].travel, false)
+  assert.equal(day.items[1].travel, true)
   // imageIds carried forward when the item title matches the old day
   assert.deepEqual(day.items[0].imageIds, ['img_keep'])
-  assert.deepEqual(day.items[1].imageIds, [])
+  assert.deepEqual(day.items[2].imageIds, [])
 })
 
 test('applyItineraryUpdate applies partial updates (summary only)', async () => {

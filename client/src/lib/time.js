@@ -76,6 +76,17 @@ export function parseTimeInput(str) {
   return t ? toHHMM(t.minutes) : null
 }
 
+// "15 min", "1 hr", "1 hr 20 min" between timeStart and timeEnd, or ''.
+export function formatDuration(item) {
+  if (!item.timeStart || !item.timeEnd) return ''
+  const span = toMinutes(item.timeEnd) - toMinutes(item.timeStart)
+  if (span <= 0) return ''
+  const hours = Math.floor(span / 60)
+  const minutes = span % 60
+  if (!hours) return `${minutes} min`
+  return minutes ? `${hours} hr ${minutes} min` : `${hours} hr`
+}
+
 // Converts CSV-import rows ({time, plan, details}) to time-block items with
 // chronological pm inference across the day.
 export function convertImportItems(items) {
@@ -102,6 +113,7 @@ export function convertImportItems(items) {
       timeLabel: parsed.timeLabel,
       title: item.plan ?? '',
       description: stripCodeFromHeadings(item.details ?? ''),
+      travel: false,
       imageIds: [],
     }
   })
