@@ -7,7 +7,7 @@ import { createStorage } from './storage.js'
 import { createAuth, USERNAME_RE, MIN_PASSWORD_LENGTH } from './auth.js'
 import { normalizeHotelStays } from './hotels.js'
 import { canView, canEdit, isOwner } from './permissions.js'
-import { normalizeLinkedDay, validateLinkedDay, resolveTripDays } from './links.js'
+import { normalizeLinkedDay, validateLinkedDay, resolveTripDays, findLinkingTrips } from './links.js'
 
 // Slugs that would collide with app routes ("/trips/new") or API routes.
 const RESERVED_SLUGS = new Set(['new', 'ai'])
@@ -274,6 +274,17 @@ export function createApp(
       if ('visibility' in body) {
         if (body.visibility !== 'private' && body.visibility !== 'public')
           return res.status(400).json({ error: 'visibility must be "private" or "public"' })
+        // A public trip whose days are linked FROM a public trip cannot go
+        // private — the linking trip's viewers would lose the linked days.
+        if (body.visibility === 'private' && trip.visibility === 'public') {
+          const publicLinkers = (await findLinkingTrips(trip.id, storage)).filter(
+            (t) => (t.ownerId ? t.visibility : 'public') === 'public'
+          )
+          if (publicLinkers.length > 0)
+            return res.status(409).json({
+              error: `Days of this trip are linked from the public trip${publicLinkers.length > 1 ? 's' : ''} ${publicLinkers.map((t) => `"${t.name}"`).join(', ')}. Unlink those days or make that trip private before making this one private.`,
+            })
+        }
         trip.visibility = body.visibility
       }
       if ('sharedWith' in body) {
@@ -283,6 +294,19 @@ export function createApp(
         for (const username of usernames) {
           if (!(await auth.readUser(username)))
             return res.status(400).json({ error: `unknown user: ${username}` })
+        }
+        // Users cannot be unshared while a trip that links here still shares
+        // with them — they'd lose the linked days on that trip.
+        const removed = (trip.sharedWith ?? []).filter((u) => !usernames.includes(u))
+        if (removed.length > 0) {
+          const linkers = await findLinkingTrips(trip.id, storage)
+          for (const username of removed) {
+            const blocking = linkers.filter((t) => (t.sharedWith ?? []).includes(username))
+            if (blocking.length > 0)
+              return res.status(409).json({
+                error: `"${username}" still has access to the trip${blocking.length > 1 ? 's' : ''} ${blocking.map((t) => `"${t.name}"`).join(', ')}, which link${blocking.length > 1 ? '' : 's'} days of this trip. Unshare that trip (or unlink the days) first.`,
+              })
+          }
         }
         trip.sharedWith = usernames
       }

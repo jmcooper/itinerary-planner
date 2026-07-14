@@ -32,6 +32,16 @@ export function validateLinkedDay(day, tripId) {
   return null
 }
 
+// Trips that contain a day linked TO the given trip (inbound links). Used to
+// stop a source trip from being made private/unshared while a public or
+// shared trip still depends on it.
+export async function findLinkingTrips(tripId, storage) {
+  const trips = await storage.listTrips()
+  return trips.filter(
+    (t) => t.id !== tripId && Object.values(t.days ?? {}).some((d) => d?.linkedTripId === tripId)
+  )
+}
+
 // Returns a copy of the trip with linked days resolved to the target day's
 // content plus metadata the client needs: linkedTripName (indicator),
 // linkedCanEdit (whether this user's edits can write through), and

@@ -469,6 +469,60 @@ test('resolving a linked day carries the target trip’s hotel stays for that da
   assert.equal(bWithNineteenth.body.days['2026-07-18'].linkedHotelStays[0].hotelName, 'Source Inn')
 })
 
+test('a source trip cannot go private while a public trip links to it', async () => {
+  const { a, b } = await makeLinkedPair()
+  await alice.put(`/api/trips/${a.id}`).send({ visibility: 'public' })
+  await alice.put(`/api/trips/${b.id}`).send({ visibility: 'public' })
+
+  const blocked = await alice.put(`/api/trips/${a.id}`).send({ visibility: 'private' })
+  assert.equal(blocked.status, 409)
+  assert.match(blocked.body.error, /Linker /) // names the linking trip
+  assert.equal((await alice.get(`/api/trips/${a.id}`)).body.visibility, 'public')
+
+  // Making the linking trip private unblocks it
+  await alice.put(`/api/trips/${b.id}`).send({ visibility: 'private' })
+  const allowed = await alice.put(`/api/trips/${a.id}`).send({ visibility: 'private' })
+  assert.equal(allowed.status, 200)
+  assert.equal(allowed.body.visibility, 'private')
+})
+
+test('a user cannot be unshared from a source trip while a linking trip shares them', async () => {
+  const erin = request.agent(app)
+  await erin.post('/api/auth/register').send({ username: 'erin', password: 'correct horse' })
+  const { a, b } = await makeLinkedPair()
+  await alice.put(`/api/trips/${a.id}`).send({ sharedWith: ['erin'] })
+  await alice.put(`/api/trips/${b.id}`).send({ sharedWith: ['erin'] })
+
+  const blocked = await alice.put(`/api/trips/${a.id}`).send({ sharedWith: [] })
+  assert.equal(blocked.status, 409)
+  assert.match(blocked.body.error, /erin/)
+  assert.match(blocked.body.error, /Linker /)
+  assert.deepEqual((await alice.get(`/api/trips/${a.id}`)).body.sharedWith, ['erin'])
+
+  // Unsharing the linking trip first unblocks the removal
+  await alice.put(`/api/trips/${b.id}`).send({ sharedWith: [] })
+  const allowed = await alice.put(`/api/trips/${a.id}`).send({ sharedWith: [] })
+  assert.equal(allowed.status, 200)
+
+  // ...and unrelated fields on a guarded trip still save fine
+  await alice.put(`/api/trips/${b.id}`).send({ sharedWith: ['erin'] })
+  const rename = await alice.put(`/api/trips/${a.id}`).send({ name: 'Renamed Source' })
+  assert.equal(rename.status, 200)
+})
+
+test('unlinking removes the guard on the source trip', async () => {
+  const { a, b } = await makeLinkedPair()
+  await alice.put(`/api/trips/${a.id}`).send({ visibility: 'public' })
+  await alice.put(`/api/trips/${b.id}`).send({ visibility: 'public' })
+  // Unlink b's day (replace the marker with a plain day)
+  const bDays = (await alice.get(`/api/trips/${b.id}`)).body.days
+  await alice
+    .put(`/api/trips/${b.id}`)
+    .send({ days: { ...bDays, '2026-07-18': { title: '', mapsUrl: '', items: [] } } })
+  const allowed = await alice.put(`/api/trips/${a.id}`).send({ visibility: 'private' })
+  assert.equal(allowed.status, 200)
+})
+
 test('unlinking stores a plain day again', async () => {
   const { b } = await makeLinkedPair()
   const resolved = (await alice.get(`/api/trips/${b.id}`)).body
