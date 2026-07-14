@@ -129,6 +129,23 @@ export default function SharePanel({ trip, onSave, onClose }) {
         </button>
       </div>
 
+      <div className="share-visibility">
+        <span className="share-label">Archive</span>
+        <p className="muted share-visibility-note">
+          {trip.archived
+            ? 'This trip is archived — it only appears under “Show archived trips”.'
+            : 'Hide this trip from the home page without deleting it.'}
+        </p>
+        <button
+          type="button"
+          className="btn btn-ghost btn-small"
+          disabled={saving}
+          onClick={() => save({ archived: !trip.archived })}
+        >
+          {trip.archived ? 'Unarchive Trip' : 'Archive Trip'}
+        </button>
+      </div>
+
       <div className="share-with">
         <span className="share-label">Shared with</span>
         {sharedWith.length === 0 && <span className="muted">no one yet</span>}

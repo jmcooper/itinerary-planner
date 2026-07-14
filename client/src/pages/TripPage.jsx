@@ -171,6 +171,7 @@ export default function TripPage() {
             <span className={`visibility-badge${isPublic ? ' public' : ''}`}>
               {isPublic ? 'Public' : 'Private'}
             </span>
+            {trip.archived && <span className="visibility-badge">Archived</span>}
             {trip.isOwner && (
               <button
                 type="button"

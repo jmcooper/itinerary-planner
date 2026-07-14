@@ -221,6 +221,56 @@ test('POST /api/trips/:id/duplicate requires auth and a viewable trip', async ()
   assert.equal((await alice.post('/api/trips/nope/duplicate')).status, 404)
 })
 
+test('PUT /api/trips/:id archives and unarchives a trip', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Old Trip' })
+  const id = created.body.id
+
+  const archived = await alice.put(`/api/trips/${id}`).send({ archived: true })
+  assert.equal(archived.status, 200)
+  assert.equal(archived.body.archived, true)
+
+  const list = await alice.get('/api/trips')
+  assert.equal(list.body.mine.find((t) => t.id === id).archived, true)
+
+  const restored = await alice.put(`/api/trips/${id}`).send({ archived: false })
+  assert.equal(restored.body.archived, false)
+})
+
+test('PUT /api/trips/:id rejects non-boolean archived', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Bad Archive' })
+  const res = await alice.put(`/api/trips/${created.body.id}`).send({ archived: 'yes' })
+  assert.equal(res.status, 400)
+})
+
+test('only the owner can archive — a shared editor cannot', async () => {
+  const bob = request.agent(app)
+  await bob.post('/api/auth/register').send({ username: 'bob', password: 'correct horse' })
+  const created = await alice.post('/api/trips').send({ name: 'Shared Not Archivable' })
+  const id = created.body.id
+  await alice.put(`/api/trips/${id}`).send({ sharedWith: ['bob'] })
+
+  // bob can edit days but not archive
+  const editRes = await bob
+    .put(`/api/trips/${id}`)
+    .send({ days: { '2026-10-01': { title: '', mapsUrl: '', items: [] } } })
+  assert.equal(editRes.status, 200)
+  const archiveRes = await bob.put(`/api/trips/${id}`).send({ archived: true })
+  assert.equal(archiveRes.status, 403)
+
+  // the archived flag flows through to bob's shared list once alice sets it
+  await alice.put(`/api/trips/${id}`).send({ archived: true })
+  const list = await bob.get('/api/trips')
+  assert.equal(list.body.shared.find((t) => t.id === id).archived, true)
+})
+
+test('duplicating an archived trip yields an unarchived copy', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Archived Source' })
+  await alice.put(`/api/trips/${created.body.id}`).send({ archived: true })
+  const copy = await alice.post(`/api/trips/${created.body.id}/duplicate`)
+  assert.equal(copy.status, 201)
+  assert.equal(copy.body.archived, false)
+})
+
 test('trip ids are url-safe slugs derived from the name', async () => {
   const created = await alice.post('/api/trips').send({ name: 'Grand Cañón & Back!' })
   assert.match(created.body.id, /^[a-z0-9-]+$/)

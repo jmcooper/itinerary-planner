@@ -166,6 +166,7 @@ export function createApp(
       updatedAt,
       ownerId: trip.ownerId ?? null,
       visibility: trip.ownerId ? trip.visibility ?? 'private' : 'public',
+      archived: trip.archived === true,
     }
   }
 
@@ -229,6 +230,7 @@ export function createApp(
         ownerId: req.username,
         visibility: 'private',
         sharedWith: [],
+        archived: false,
         createdAt: now,
         updatedAt: now,
       }
@@ -331,6 +333,13 @@ export function createApp(
         if (typeof body.name !== 'string' || !body.name.trim())
           return res.status(400).json({ error: 'name must be a non-empty string' })
         trip.name = body.name.trim()
+      }
+      if ('archived' in body) {
+        if (!isOwner(trip, req.username))
+          return res.status(403).json({ error: 'only the owner can archive this trip' })
+        if (typeof body.archived !== 'boolean')
+          return res.status(400).json({ error: 'archived must be a boolean' })
+        trip.archived = body.archived
       }
       if ('days' in body) {
         if (typeof body.days !== 'object' || body.days === null || Array.isArray(body.days))

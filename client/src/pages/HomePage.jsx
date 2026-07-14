@@ -8,6 +8,7 @@ import { CopyIcon } from '../components/icons.jsx'
 export default function HomePage() {
   const { user } = useAuth()
   const [trips, setTrips] = useState(null)
+  const [showArchived, setShowArchived] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -37,6 +38,15 @@ export default function HomePage() {
     }
   }
 
+  async function handleUnarchive(trip) {
+    try {
+      await api.updateTrip(trip.id, { archived: false })
+      setTrips(await api.listTrips())
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   return (
     <div className="home">
       <section className="hero">
@@ -61,28 +71,61 @@ export default function HomePage() {
       ) : trips.mine.length + trips.shared.length + trips.public.length === 0 ? (
         <p className="empty-note">No trips yet — create your first itinerary above.</p>
       ) : (
-        <>
-          {user && trips.mine.length > 0 && (
-            <TripSection
-              title="My Trips"
-              trips={trips.mine}
-              onDelete={handleDelete}
-              onDuplicate={handleDuplicate}
-            />
-          )}
-          {user && trips.shared.length > 0 && (
-            <TripSection title="Trips Shared with Me" trips={trips.shared} withOwner />
-          )}
-          {trips.public.length > 0 && (
-            <TripSection title="Public Trips" trips={trips.public} withOwner />
-          )}
-        </>
+        <HomeSections
+          user={user}
+          trips={trips}
+          showArchived={showArchived}
+          onToggleArchived={() => setShowArchived((v) => !v)}
+          onDelete={handleDelete}
+          onDuplicate={handleDuplicate}
+          onUnarchive={handleUnarchive}
+        />
       )}
     </div>
   )
 }
 
-function TripSection({ title, trips, onDelete, onDuplicate, withOwner }) {
+function HomeSections({ user, trips, showArchived, onToggleArchived, onDelete, onDuplicate, onUnarchive }) {
+  const active = (list) => list.filter((t) => !t.archived)
+  const mine = active(trips.mine)
+  const shared = active(trips.shared)
+  const pub = active(trips.public)
+  // Everything archived the user can see, in one section; own trips get an
+  // unarchive shortcut.
+  const archived = [
+    ...trips.mine.filter((t) => t.archived).map((t) => ({ ...t, mine: true })),
+    ...trips.shared.filter((t) => t.archived),
+    ...trips.public.filter((t) => t.archived),
+  ]
+
+  return (
+    <>
+      {user && mine.length > 0 && (
+        <TripSection title="My Trips" trips={mine} onDelete={onDelete} onDuplicate={onDuplicate} />
+      )}
+      {user && shared.length > 0 && (
+        <TripSection title="Trips Shared with Me" trips={shared} withOwner />
+      )}
+      {pub.length > 0 && <TripSection title="Public Trips" trips={pub} withOwner />}
+      {archived.length > 0 && (
+        <>
+          {showArchived && (
+            <TripSection title="Archived Trips" trips={archived} withOwner onUnarchive={onUnarchive} />
+          )}
+          <p className="archived-toggle-row">
+            <button type="button" className="archived-toggle" onClick={onToggleArchived}>
+              {showArchived
+                ? 'Hide archived trips'
+                : `Show archived trips (${archived.length})`}
+            </button>
+          </p>
+        </>
+      )}
+    </>
+  )
+}
+
+function TripSection({ title, trips, onDelete, onDuplicate, onUnarchive, withOwner }) {
   return (
     <section className="trip-section">
       <h2 className="trip-section-title">{title}</h2>
@@ -93,11 +136,20 @@ function TripSection({ title, trips, onDelete, onDuplicate, withOwner }) {
               <span className="trip-card-name">{trip.name}</span>
               <span className="trip-card-dates">
                 {formatRange(trip.startDate, trip.endDate)}
-                {withOwner && trip.ownerId && (
+                {withOwner && trip.ownerId && !trip.mine && (
                   <span className="trip-card-owner"> · by {trip.ownerId}</span>
                 )}
               </span>
             </Link>
+            {onUnarchive && trip.mine && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-small trip-card-unarchive"
+                onClick={() => onUnarchive(trip)}
+              >
+                Unarchive
+              </button>
+            )}
             {onDuplicate && (
               <button
                 type="button"
