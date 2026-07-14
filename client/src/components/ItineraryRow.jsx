@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import ReactMarkdown from 'react-markdown'
 import { formatTimeBlock, formatDuration, parseTimeInput } from '../lib/time.js'
+import Markdown from './Markdown.jsx'
 import ItemImages from './ItemImages.jsx'
 
 export default function ItineraryRow({ tripId, item, canEdit, onSave }) {
@@ -45,7 +45,7 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave }) {
               <div className="itin-details-main">
                 {item.description ? (
                   <div className="markdown">
-                    <ReactMarkdown>{item.description}</ReactMarkdown>
+                    <Markdown>{item.description}</Markdown>
                   </div>
                 ) : (
                   <p className="muted">No details for this item yet.</p>

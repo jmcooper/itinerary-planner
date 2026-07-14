@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
 import { api } from '../api.js'
+import Markdown from './Markdown.jsx'
 import ModelPicker, { preferredModel } from './ModelPicker.jsx'
 
 function MessageParts({ message }) {
@@ -8,7 +8,7 @@ function MessageParts({ message }) {
     if (part.text) {
       return (
         <div key={i} className="markdown chat-md">
-          <ReactMarkdown>{part.text}</ReactMarkdown>
+          <Markdown>{part.text}</Markdown>
         </div>
       )
     }
@@ -161,7 +161,7 @@ export default function ChatPanel({
           <div className="chat-agent">
             {streamText && (
               <div className="markdown chat-md">
-                <ReactMarkdown>{streamText}</ReactMarkdown>
+                <Markdown>{streamText}</Markdown>
               </div>
             )}
             <div className="chat-dots" role="status" aria-label="The assistant is working">
