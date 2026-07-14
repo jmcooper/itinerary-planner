@@ -158,9 +158,10 @@ export default function DayView({
           {items.length === 0 ? (
             dayCanEdit ? (
               <>
-                <EmptyDayEditor onSaveItems={onSaveItems} linkAction={linkAction} />
+                <EmptyDayEditor onSaveItems={onSaveItems} />
                 {onDeleteDay && (
                   <div className="day-table-footer">
+                    {linkAction}
                     <DeleteDayButton onClick={handleDelete} />
                   </div>
                 )}
@@ -355,7 +356,7 @@ const newItem = () => ({
 
 // Empty-day editor: items are added one at a time; the legacy CSV/markdown
 // paste flow stays available behind a quiet link.
-function EmptyDayEditor({ onSaveItems, linkAction = null }) {
+function EmptyDayEditor({ onSaveItems }) {
   const [mode, setMode] = useState('menu') // 'menu' | 'add' | 'paste'
 
   if (mode === 'paste') {
@@ -378,12 +379,9 @@ function EmptyDayEditor({ onSaveItems, linkAction = null }) {
           onSave={(item) => onSaveItems([item])}
           onCancel={() => setMode('menu')}
           extraActions={
-            <>
-              {linkAction}
-              <button type="button" className="quiet-toggle" onClick={() => setMode('paste')}>
-                Use old CSV flow
-              </button>
-            </>
+            <button type="button" className="quiet-toggle" onClick={() => setMode('paste')}>
+              Use old CSV flow
+            </button>
           }
         />
       </div>
@@ -497,7 +495,6 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay, linkAction
             canEdit={canEdit}
             onSave={(u) => saveItem(index, u)}
             onDelete={() => deleteItem(index)}
-            editExtraActions={linkAction}
           />
         ))}
       </ul>
@@ -511,12 +508,12 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay, linkAction
               setAdding(false)
             }}
             onCancel={() => setAdding(false)}
-            extraActions={linkAction}
           />
         </div>
       )}
       {canEdit && (
         <div className="day-table-footer">
+          {linkAction}
           {onDeleteDay && <DeleteDayButton onClick={onDeleteDay} />}
           {!adding && (
             <button

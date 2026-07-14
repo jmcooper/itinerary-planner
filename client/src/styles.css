@@ -1561,6 +1561,12 @@ label {
   padding: 0.45rem 0.9rem;
 }
 
+.day-table-footer .quiet-toggle {
+  align-self: center;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
 .itin-item-actions {
   display: flex;
   gap: 8px;
