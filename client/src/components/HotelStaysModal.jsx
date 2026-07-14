@@ -13,26 +13,55 @@ function formatStayRange(stay) {
   return `${from.weekday}, ${from.label} → ${to.weekday}, ${to.label} · ${nights} night${nights === 1 ? '' : 's'}`
 }
 
-function ConfirmationNumber({ value }) {
+function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false)
-  if (!value) return null
+  return (
+    <button
+      type="button"
+      className="btn-icon hotel-copy-btn"
+      title={label}
+      aria-label={label}
+      onClick={() => {
+        navigator.clipboard?.writeText(text)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+    >
+      {copied ? '✓' : <CopyIcon />}
+    </button>
+  )
+}
+
+// showEmpty renders a muted placeholder when there's no number on file —
+// used in the detail modal so its absence is explicit, not a mystery.
+function ConfirmationNumber({ value, showEmpty = false }) {
+  if (!value) {
+    return showEmpty ? <p className="muted hotel-stay-no-conf">No confirmation # on file.</p> : null
+  }
   return (
     <div className="hotel-stay-conf-row">
       <span className="hotel-stay-conf-label">Confirmation #</span>
       <span className="hotel-stay-conf">{value}</span>
-      <button
-        type="button"
-        className="btn-icon"
-        title="Copy confirmation number"
-        aria-label="Copy confirmation number"
-        onClick={() => {
-          navigator.clipboard?.writeText(value)
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        }}
+      <CopyButton text={value} label="Copy confirmation number" />
+    </div>
+  )
+}
+
+// Maps link plus a copy button — the raw address is handy for Uber & co.
+function StayAddress({ address }) {
+  if (!address) return null
+  return (
+    <div className="hotel-stay-address-row">
+      <a
+        className="hotel-stay-address"
+        href={mapsSearchUrl(address)}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open in Google Maps"
       >
-        {copied ? '✓' : <CopyIcon />}
-      </button>
+        {address}
+      </a>
+      <CopyButton text={address} label="Copy address" />
     </div>
   )
 }
@@ -43,17 +72,7 @@ function StayInfo({ stay }) {
       <div className="hotel-stay-name">{stay.hotelName}</div>
       <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
       <ConfirmationNumber value={stay.confirmationNumber} />
-      {stay.hotelAddress && (
-        <a
-          className="hotel-stay-address"
-          href={mapsSearchUrl(stay.hotelAddress)}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="Open in Google Maps"
-        >
-          {stay.hotelAddress}
-        </a>
-      )}
+      <StayAddress address={stay.hotelAddress} />
     </>
   )
 }
@@ -238,17 +257,9 @@ export function HotelStayDetail({ stay, onClose }) {
     <Modal title={stay.hotelName} onClose={onClose}>
       <div className="hotel-stay-info hotel-stay-detail">
         <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
-        <ConfirmationNumber value={stay.confirmationNumber} />
+        <ConfirmationNumber value={stay.confirmationNumber} showEmpty />
         {stay.hotelAddress ? (
-          <a
-            className="hotel-stay-address"
-            href={mapsSearchUrl(stay.hotelAddress)}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Open in Google Maps"
-          >
-            {stay.hotelAddress}
-          </a>
+          <StayAddress address={stay.hotelAddress} />
         ) : (
           <p className="muted">No address on file.</p>
         )}

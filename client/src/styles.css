@@ -1748,10 +1748,26 @@ label {
   padding: 0.1rem 0.45rem;
 }
 
+.hotel-stay-address-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .hotel-stay-address {
   color: var(--primary);
   font-size: 0.92rem;
   overflow-wrap: anywhere;
+}
+
+.hotel-copy-btn {
+  padding: 0.2rem;
+  flex-shrink: 0;
+}
+
+.hotel-stay-no-conf {
+  margin: 0;
+  font-size: 0.9rem;
 }
 
 .hotel-stay-actions {
@@ -1896,3 +1912,5 @@ label {
   margin: 0.9rem 0 0;
   font-size: 0.92rem;
 }
+
+/* MANUAL-ENTRY-CSS-PLACEHOLDER */
