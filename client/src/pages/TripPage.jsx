@@ -254,6 +254,7 @@ export default function TripPage() {
           canEdit={canEdit}
           initialAdd={hotelModal.type === 'add'}
           prefillCheckIn={hotelModal.prefillCheckIn ?? null}
+          chatAvailable={showChat}
           onSave={(next) => saveTrip({ hotelStays: next })}
           onClose={() => setHotelModal(null)}
         />

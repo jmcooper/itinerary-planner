@@ -1775,6 +1775,13 @@ label {
   flex: 1;
 }
 
+/* Quiet nudge toward the conversational path */
+.hotel-stay-hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: var(--ink-faint);
+}
+
 /* Check-in / check-out icon colors (both day tiles and the day header) */
 .hotel-icon-checkin {
   color: var(--success);

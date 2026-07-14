@@ -66,7 +66,7 @@ const EMPTY_FORM = {
   confirmationNumber: '',
 }
 
-function StayForm({ initial, onSubmit, onCancel }) {
+function StayForm({ initial, onSubmit, onCancel, hint = null }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial })
   const [error, setError] = useState('')
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
@@ -122,13 +122,22 @@ function StayForm({ initial, onSubmit, onCancel }) {
           Cancel
         </button>
       </div>
+      {hint && <p className="hotel-stay-hint">{hint}</p>}
     </form>
   )
 }
 
 // Add/view/edit all of a trip's hotel stays. onSave receives the full
 // replacement array (stays live at the trip level).
-export function HotelStaysModal({ stays, canEdit, onSave, onClose, initialAdd = false, prefillCheckIn = null }) {
+export function HotelStaysModal({
+  stays,
+  canEdit,
+  onSave,
+  onClose,
+  initialAdd = false,
+  prefillCheckIn = null,
+  chatAvailable = false,
+}) {
   // null = list view; -1 = adding; >= 0 = editing that index
   const [editing, setEditing] = useState(initialAdd ? -1 : null)
   const [error, setError] = useState('')
@@ -163,6 +172,12 @@ export function HotelStaysModal({ stays, canEdit, onSave, onClose, initialAdd = 
             save(next)
           }}
           onCancel={() => setEditing(null)}
+          // Nudge toward the conversational path, but only for new stays.
+          hint={
+            editing === -1 && chatAvailable
+              ? 'Tip: you can also ask the assistant — e.g. “Add a hotel stay at the Holiday Inn, checking in July 18 and out July 21.”'
+              : null
+          }
         />
       ) : (
         <>
