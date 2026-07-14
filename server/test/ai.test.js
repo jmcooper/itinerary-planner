@@ -11,6 +11,7 @@ import {
   sortModelsForDisplay,
   sanitizeChatMessages,
   compactHistoryForModel,
+  appendNewTurns,
   systemPrompt,
 } from '../src/ai.js'
 
@@ -356,60 +357,141 @@ test('sanitizeChatMessages keeps only replayable message parts', () => {
   ])
 })
 
-test('compactHistoryForModel replaces old tool pairs with text notes', () => {
+test('compactHistoryForModel compacts older tool pairs but keeps the latest intact', () => {
   const bigDay = {
     date: '2026-07-01',
     title: 'Geysers',
     waypoints: ['A', 'B'],
     items: [{ timeStart: '08:00', timeEnd: null, title: 'Go', description: 'x'.repeat(500) }],
   }
+  const call = (input) => ({ toolRequest: { name: 'updateItinerary', ref: '0', input } })
+  const resp = () => ({
+    toolResponse: { name: 'updateItinerary', ref: '0', output: { ok: true, savedDays: ['2026-07-01'], removedDays: [] } },
+  })
   const messages = [
     { role: 'user', content: [{ text: 'Plan my trip, no strenuous hikes' }] },
     {
       role: 'model',
       content: [
         { text: 'Here is the plan.' },
-        {
-          toolRequest: {
-            name: 'updateItinerary',
-            ref: '0',
-            input: { tripName: 'Yellowstone', summary: 's', days: [bigDay], removeDates: ['2026-07-05'] },
-          },
-        },
+        call({ tripName: 'Yellowstone', summary: 's', days: [bigDay], removeDates: ['2026-07-05'] }),
       ],
     },
-    {
-      role: 'tool',
-      content: [
-        { toolResponse: { name: 'updateItinerary', ref: '0', output: { ok: true, savedDays: ['2026-07-01'], removedDays: ['2026-07-05'] } } },
-      ],
-    },
+    { role: 'tool', content: [resp()] },
     { role: 'user', content: [{ text: 'Make day 1 end earlier' }] },
+    { role: 'model', content: [{ text: 'Adjusted.' }, call({ days: [bigDay] })] },
+    { role: 'tool', content: [resp()] },
+    { role: 'user', content: [{ text: 'Thanks' }] },
   ]
 
   const compacted = compactHistoryForModel(messages)
 
-  // No tool parts survive — the model gets no tool-call shape to imitate
-  const parts = compacted.flatMap((m) => m.content)
-  assert.ok(parts.every((p) => !p.toolRequest && !p.toolResponse))
-
-  // Dialogue text is untouched; the tool pair became a text note in the model turn
+  // The OLDER pair became a SYSTEM note in the user voice — never assistant
+  // text, which models would imitate instead of calling the tool.
   assert.deepEqual(compacted[0], messages[0])
-  assert.deepEqual(compacted[1].content[0], { text: 'Here is the plan.' })
-  const note = compacted[1].content[1].text
+  assert.deepEqual(compacted[1], { role: 'model', content: [{ text: 'Here is the plan.' }] })
+  assert.equal(compacted[2].role, 'user')
+  const note = compacted[2].content[0].text
+  assert.match(note, /^\[System note/)
   assert.match(note, /2026-07-01/)
   assert.match(note, /2026-07-05/)
   assert.match(note, /renamed the trip to "Yellowstone"/)
   assert.ok(note.length < 250, `note should be small, got ${note.length}`)
-  assert.ok(!note.includes('xxxxx'), 'day content must not be replayed')
+  assert.ok(!note.includes('xxxxx'), 'old day content must not be replayed')
 
-  // The orphaned tool-role message is dropped entirely; later turns keep their place
-  assert.equal(compacted.length, 3)
-  assert.deepEqual(compacted[2], messages[3])
+  // The LATEST exchange survives verbatim — a correct worked example
+  const keptModel = compacted.find((m) => m.content.some((p) => p.toolRequest))
+  assert.ok(keptModel, 'latest tool call kept')
+  assert.equal(keptModel.content[1].toolRequest.input.days[0].date, '2026-07-01')
+  assert.ok(
+    compacted.some((m) => m.content.some((p) => p.toolResponse)),
+    'latest tool response kept'
+  )
+
+  // user, model, note, user, model(real call), tool, user — old tool msg gone
+  assert.equal(compacted.length, 7)
 
   // Stored messages are not mutated in place
   assert.equal(messages[1].content[1].toolRequest.input.days[0].items[0].description.length, 500)
-  assert.equal(messages.length, 4)
+  assert.equal(messages.length, 7)
+})
+
+test('compactHistoryForModel scrubs note-styled text from model messages', () => {
+  // Old builds stored compaction notes into model text, and a confused model
+  // once wrote a fake note claiming success. Neither may replay as
+  // assistant prose.
+  const messages = [
+    { role: 'user', content: [{ text: 'add the stay' }] },
+    {
+      role: 'model',
+      content: [
+        { text: '[Applied itinerary update — replaced hotel stays (2)]\n\nDone! Your stay is recorded.' },
+      ],
+    },
+    { role: 'model', content: [{ text: '[Applied itinerary update — no changes]' }] },
+    { role: 'model', content: [{ text: '[Applied itinerary update — no changes]' }] },
+    { role: 'user', content: [{ text: 'thanks' }] },
+  ]
+  const compacted = compactHistoryForModel(messages)
+  const modelTexts = compacted
+    .filter((m) => m.role === 'model')
+    .flatMap((m) => m.content.map((p) => p.text ?? ''))
+  assert.ok(
+    modelTexts.every((t) => !t.includes('[Applied itinerary update')),
+    'no note-styled assistant text may replay'
+  )
+  assert.ok(
+    modelTexts.every((t) => !t.includes('Done! Your stay is recorded')),
+    'fake success prose is dropped with its note'
+  )
+  // The legit information moves to system notes, coalesced into one message
+  const noteMessages = compacted.filter(
+    (m) => m.role === 'user' && m.content.some((p) => p.text?.startsWith('[System note'))
+  )
+  assert.equal(noteMessages.length, 1)
+  assert.equal(noteMessages[0].content.length, 3)
+  assert.match(noteMessages[0].content[0].text, /replaced hotel stays \(2\)/)
+})
+
+test('appendNewTurns keeps the stored history intact and adds only new turns', () => {
+  const history = [
+    { role: 'user', content: [{ text: 'hi' }] },
+    {
+      role: 'model',
+      content: [
+        { text: 'made it' },
+        { toolRequest: { name: 'updateItinerary', ref: '0', input: { summary: 'old' } } },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [{ toolResponse: { name: 'updateItinerary', ref: '0', output: { ok: true, savedDays: [], removedDays: [] } } }],
+    },
+    { role: 'user', content: [{ text: 'again' }] },
+  ]
+  const replayed = compactHistoryForModel(history)
+  // Genkit echoes the system prompt + the replay copy back in final.messages
+  const finalMessages = [
+    { role: 'system', content: [{ text: 'prompt' }] },
+    ...replayed,
+    {
+      role: 'model',
+      content: [
+        { text: 'done' },
+        { toolRequest: { name: 'updateItinerary', ref: '0', input: { summary: 'new' } } },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [{ toolResponse: { name: 'updateItinerary', ref: '0', output: { ok: true, savedDays: [], removedDays: [] } } }],
+    },
+  ]
+  const stored = appendNewTurns(history, replayed.length, finalMessages)
+  assert.equal(stored.length, history.length + 2)
+  // The original REAL tool call is still stored — not a compacted note
+  assert.deepEqual(stored.slice(0, 4), history)
+  assert.ok(stored[1].content.some((p) => p.toolRequest?.input?.summary === 'old'))
+  assert.ok(stored[4].content.some((p) => p.toolRequest?.input?.summary === 'new'))
 })
 
 test('compactHistoryForModel notes hotel-stay replacements', () => {
@@ -426,9 +508,15 @@ test('compactHistoryForModel notes hotel-stay replacements', () => {
         },
       ],
     },
+    // a later exchange, so the hotel one is "older" and gets compacted
+    {
+      role: 'model',
+      content: [{ toolRequest: { name: 'updateItinerary', ref: '0', input: { summary: 's' } } }],
+    },
   ]
-  const note = compactHistoryForModel(messages)[0].content[0].text
-  assert.match(note, /replaced hotel stays \(2\)/)
+  const compacted = compactHistoryForModel(messages)
+  assert.equal(compacted[0].role, 'user') // system note, never assistant text
+  assert.match(compacted[0].content[0].text, /replaced hotel stays \(2\)/)
 })
 
 test('systemPrompt embeds hotel stays and the coverage rules', () => {

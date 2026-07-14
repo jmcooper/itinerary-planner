@@ -239,33 +239,86 @@ export function sanitizeChatMessages(messages) {
 // a plain-text note describing what it did — NOT a stubbed tool call, because
 // models imitate prior tool-call shapes and a placeholder input teaches them
 // to send empty updates. The stored history keeps everything for display.
+// Matches compaction placeholder notes — including ones older builds stored
+// into model text, and ones a confused model wrote itself (observed in
+// production: the model "said" the note instead of calling the tool).
+const NOTE_RE = /^\s*\[Applied itinerary update[^\]]*\]\s*/
+
+function describeUpdate(input = {}) {
+  const actions = []
+  if (input.tripName) actions.push(`renamed the trip to "${input.tripName}"`)
+  if (typeof input.summary === 'string') actions.push('updated the trip summary')
+  const dates = (input.days ?? []).map((d) => d.date)
+  if (dates.length) actions.push(`replaced days: ${dates.join(', ')}`)
+  if (input.removeDates?.length) actions.push(`removed days: ${input.removeDates.join(', ')}`)
+  if (input.hotelStays) actions.push(`replaced hotel stays (${input.hotelStays.length})`)
+  return actions.join('; ') || 'no changes'
+}
+
 export function compactHistoryForModel(messages) {
-  const compactedRefs = new Set()
-  return (messages ?? [])
-    .map((message) => ({
-      ...message,
-      content: message.content
-        .map((part) => {
-          if (part.toolRequest?.name === 'updateItinerary') {
-            compactedRefs.add(part.toolRequest.ref)
-            const input = part.toolRequest.input ?? {}
-            const actions = []
-            if (input.tripName) actions.push(`renamed the trip to "${input.tripName}"`)
-            if (typeof input.summary === 'string') actions.push('updated the trip summary')
-            const dates = (input.days ?? []).map((d) => d.date)
-            if (dates.length) actions.push(`replaced days: ${dates.join(', ')}`)
-            if (input.removeDates?.length)
-              actions.push(`removed days: ${input.removeDates.join(', ')}`)
-            if (input.hotelStays)
-              actions.push(`replaced hotel stays (${input.hotelStays.length})`)
-            return { text: `[Applied itinerary update — ${actions.join('; ') || 'no changes'}]` }
-          }
-          if (part.toolResponse && compactedRefs.has(part.toolResponse.ref)) return null
-          return part
-        })
-        .filter(Boolean),
-    }))
-    .filter((message) => message.content.length > 0)
+  const list = messages ?? []
+  // The most recent tool exchange stays intact: it is a correct, complete
+  // example of how to call the tool. Without any real example in context,
+  // weaker models start imitating the placeholder notes instead of calling
+  // the tool (observed in production).
+  let lastToolIdx = -1
+  list.forEach((message, index) => {
+    if ((message.content ?? []).some((p) => p.toolRequest?.name === 'updateItinerary'))
+      lastToolIdx = index
+  })
+  const out = []
+  list.forEach((message, index) => {
+    const kept = []
+    const notes = []
+    for (const part of message.content ?? []) {
+      if (part.toolRequest?.name === 'updateItinerary' && index !== lastToolIdx) {
+        notes.push(describeUpdate(part.toolRequest.input))
+        continue
+      }
+      // Tool responses before the kept exchange belong to compacted calls;
+      // everything after lastToolIdx belongs to the kept one.
+      if (part.toolResponse && (index < lastToolIdx || lastToolIdx === -1)) continue
+      // Placeholder-note text must NEVER replay in the assistant's voice —
+      // that is what teaches models to fake notes instead of calling the
+      // tool. Legit stored notes move to the system voice; anything after
+      // the note in the same part (a faked success message) is dropped
+      // with it so the model never sees its own bad pattern.
+      if (message.role === 'model' && typeof part.text === 'string' && NOTE_RE.test(part.text)) {
+        const inner = part.text.match(/\[Applied itinerary update — ([^\]]*)\]/)?.[1]
+        if (inner) notes.push(inner)
+        continue
+      }
+      kept.push(part)
+    }
+    if (kept.length) out.push({ ...message, content: kept })
+    if (notes.length)
+      out.push({
+        role: 'user',
+        content: notes.map((n) => ({
+          text: `[System note, not from the traveler: the assistant applied an itinerary update here — ${n}]`,
+        })),
+      })
+  })
+  // Coalesce runs of adjacent system-note messages (old histories can hold
+  // long streaks of empty-update notes).
+  const coalesced = []
+  for (const message of out) {
+    const prev = coalesced[coalesced.length - 1]
+    const isNote = (m) =>
+      m.role === 'user' && m.content.every((p) => p.text?.startsWith('[System note'))
+    if (prev && isNote(prev) && isNote(message)) prev.content = [...prev.content, ...message.content]
+    else coalesced.push(message)
+  }
+  return coalesced.filter((message) => message.content.length > 0)
+}
+
+// Appends only the NEW turns from a generation onto the stored history. The
+// generation's message list echoes back the (compacted) replay copy — saving
+// that wholesale would permanently strip tool calls from the stored history,
+// which both breaks the UI's tool cards and teaches future turns to imitate
+// placeholder notes instead of calling the tool.
+export function appendNewTurns(history, replayedCount, finalMessages) {
+  return [...history, ...sanitizeChatMessages(finalMessages).slice(replayedCount)]
 }
 
 // Exported for tests.
@@ -306,7 +359,7 @@ ${Object.keys(days).length ? JSON.stringify(days, null, 1) : '(no days yet)'}
 Rules:
 - Whenever you create or change the itinerary, call the updateItinerary tool. Never describe an itinerary as saved unless the tool call succeeded.
 - Batch changes: one updateItinerary call can (and should) carry every affected day in its days array. Do not make a separate call per day.
-- Tool calls must always contain the complete, real field values. The chat history may show past updates as compacted placeholder notes — never imitate those; every new call needs full content.
+- Tool calls must always contain the complete, real field values. The conversation may contain "[System note …]" messages summarizing updates you applied earlier — the app inserts those; neither you nor the traveler writes them. Never write bracketed notes yourself: text never saves anything. Nothing is saved unless the updateItinerary tool ran in the current turn and returned ok: true.
 - Extract the trip name and the dates for each day from the user's description when creating a new itinerary.
 - To delete days (e.g. "drop day 2", "cut the last day"), pass their dates in removeDates. Days may be non-contiguous — deleting a middle day leaves a gap.
 - For each day, provide ordered waypoints (real place names, including where the day starts and ends) so the app can build a Google Maps link.
@@ -478,13 +531,15 @@ export function createAiAgent(env = process.env) {
     enabled: true,
     listModels,
     async respond({ model, trip, messages, storage, emit, username = null }) {
+      // Sanitize on the way in too, so histories saved before sanitization
+      // (or by other models) replay cleanly; compact old tool payloads —
+      // the current trip state in the system prompt supersedes them.
+      const history = sanitizeChatMessages(messages)
+      const replayed = compactHistoryForModel(history)
       const { stream, response } = ai.generateStream({
         model,
         system: systemPrompt(trip),
-        // Sanitize on the way in too, so histories saved before sanitization
-        // (or by other models) replay cleanly; compact old tool payloads —
-        // the current trip state in the system prompt supersedes them.
-        messages: compactHistoryForModel(sanitizeChatMessages(messages)),
+        messages: replayed,
         tools: [updateItinerary],
         maxTurns: 24,
         context: { storage, tripId: trip.id, emit, username },
@@ -493,7 +548,9 @@ export function createAiAgent(env = process.env) {
         if (chunk.text) emit('text', { text: chunk.text })
       }
       const final = await response
-      return sanitizeChatMessages(final.messages)
+      // Store the ORIGINAL history plus only the new turns — never the
+      // compacted replay copy that final.messages echoes back.
+      return appendNewTurns(history, replayed.length, final.messages)
     },
   }
 }
