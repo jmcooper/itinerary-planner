@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimeBlock, parseTimeInput, convertImportItems, formatDuration } from './time.js'
+import {
+  formatTimeBlock,
+  parseTimeInput,
+  convertImportItems,
+  formatDuration,
+  insertItemByTime,
+} from './time.js'
 
 describe('formatDuration', () => {
   it('formats the span between timeStart and timeEnd', () => {
@@ -57,5 +63,31 @@ describe('convertImportItems', () => {
   it('keeps unparseable times as labels', () => {
     const out = convertImportItems([{ time: 'Evening', plan: 'Stroll', details: '' }])
     expect(out[0]).toMatchObject({ timeStart: null, timeEnd: null, timeLabel: 'Evening' })
+  })
+})
+
+describe('insertItemByTime', () => {
+  const t = (timeStart, title) => ({ timeStart, timeEnd: null, title })
+  const items = [t('08:00', 'a'), t(null, 'note'), t('10:00', 'b')]
+
+  it('inserts a timed item chronologically', () => {
+    const out = insertItemByTime(items, t('09:00', 'new'))
+    expect(out.map((i) => i.title)).toEqual(['a', 'note', 'new', 'b'])
+  })
+  it('appends when the new item is latest', () => {
+    const out = insertItemByTime(items, t('11:00', 'new'))
+    expect(out.map((i) => i.title)).toEqual(['a', 'note', 'b', 'new'])
+  })
+  it('inserts before the first item when earliest', () => {
+    const out = insertItemByTime(items, t('07:00', 'new'))
+    expect(out.map((i) => i.title)).toEqual(['new', 'a', 'note', 'b'])
+  })
+  it('appends untimed items', () => {
+    const out = insertItemByTime(items, t(null, 'new'))
+    expect(out.map((i) => i.title)).toEqual(['a', 'note', 'b', 'new'])
+  })
+  it('does not mutate the original array', () => {
+    insertItemByTime(items, t('09:00', 'new'))
+    expect(items).toHaveLength(3)
   })
 })

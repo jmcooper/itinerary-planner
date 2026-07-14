@@ -118,3 +118,13 @@ export function convertImportItems(items) {
     }
   })
 }
+
+// Inserts a manually added item into chronological position: before the first
+// item whose start time is later. Untimed items (and an untimed new item)
+// keep their manual order — an untimed new item simply appends.
+export function insertItemByTime(items, item) {
+  if (!item.timeStart) return [...items, item]
+  const index = items.findIndex((it) => it.timeStart && it.timeStart > item.timeStart)
+  if (index === -1) return [...items, item]
+  return [...items.slice(0, index), item, ...items.slice(index)]
+}

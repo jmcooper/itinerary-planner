@@ -70,7 +70,8 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave }) {
   )
 }
 
-function ItemEditForm({ item, onSave, onCancel }) {
+// Also used by DayView to add new items (pass an empty item shape).
+export function ItemEditForm({ item, onSave, onCancel }) {
   const [start, setStart] = useState(item.timeLabel ?? (item.timeStart ? formatTimeBlock({ timeStart: item.timeStart }) : ''))
   const [end, setEnd] = useState(item.timeEnd ? formatTimeBlock({ timeStart: item.timeEnd }) : '')
   const [title, setTitle] = useState(item.title)

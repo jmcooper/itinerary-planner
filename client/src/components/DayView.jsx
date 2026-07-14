@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { formatDay } from '../lib/dates.js'
 import { buildDayItems } from '../lib/parse.js'
-import { convertImportItems } from '../lib/time.js'
-import ItineraryRow from './ItineraryRow.jsx'
+import { convertImportItems, insertItemByTime } from '../lib/time.js'
+import ItineraryRow, { ItemEditForm } from './ItineraryRow.jsx'
 import { PencilIcon, TrashIcon, CheckInIcon, CheckOutIcon } from './icons.jsx'
 
 export default function DayView({
@@ -99,7 +99,7 @@ export default function DayView({
       {items.length === 0 ? (
         canEdit ? (
           <>
-            <DayImportForm onSave={onSaveItems} />
+            <EmptyDayEditor onSaveItems={onSaveItems} />
             {onDeleteDay && (
               <div className="day-table-footer">
                 <DeleteDayButton onClick={handleDelete} />
@@ -281,6 +281,59 @@ function MapsLink({ mapsUrl, canEdit, onSave }) {
   )
 }
 
+const newItem = () => ({
+  timeStart: null,
+  timeEnd: null,
+  timeLabel: null,
+  title: '',
+  description: '',
+  travel: false,
+  imageIds: [],
+})
+
+// Empty-day editor: items are added one at a time; the legacy CSV/markdown
+// paste flow stays available behind a quiet link.
+function EmptyDayEditor({ onSaveItems }) {
+  const [mode, setMode] = useState('menu') // 'menu' | 'add' | 'paste'
+
+  if (mode === 'paste') {
+    return (
+      <>
+        <DayImportForm onSave={onSaveItems} />
+        <p className="quiet-toggle-row">
+          <button type="button" className="quiet-toggle" onClick={() => setMode('menu')}>
+            Back to adding items one at a time
+          </button>
+        </p>
+      </>
+    )
+  }
+  if (mode === 'add') {
+    return (
+      <div className="day-add-item">
+        <ItemEditForm
+          item={newItem()}
+          onSave={(item) => onSaveItems([item])}
+          onCancel={() => setMode('menu')}
+        />
+      </div>
+    )
+  }
+  return (
+    <div className="empty-day-editor">
+      <p className="muted">This day has no itinerary yet.</p>
+      <button type="button" className="btn btn-primary" onClick={() => setMode('add')}>
+        Add Itinerary Item
+      </button>
+      <p className="quiet-toggle-row">
+        <button type="button" className="quiet-toggle" onClick={() => setMode('paste')}>
+          Use old CSV flow
+        </button>
+      </p>
+    </div>
+  )
+}
+
 function DayImportForm({ onSave }) {
   const [csv, setCsv] = useState('')
   const [details, setDetails] = useState('')
@@ -351,6 +404,7 @@ function DayImportForm({ onSave }) {
 
 function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
   const [error, setError] = useState('')
+  const [adding, setAdding] = useState(false)
 
   async function saveItem(index, updated) {
     const next = items.map((item, i) => (i === index ? updated : item))
@@ -358,8 +412,7 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
   }
 
   async function handleClearDay() {
-    if (!window.confirm('Clear this day and paste new CSV? The current items will be removed.'))
-      return
+    if (!window.confirm('Remove all items from this day?')) return
     try {
       await onSaveItems([])
     } catch (err) {
@@ -381,11 +434,29 @@ function DayTable({ tripId, items, canEdit, onSaveItems, onDeleteDay }) {
           />
         ))}
       </ul>
+      {adding && (
+        <div className="day-add-item">
+          <ItemEditForm
+            item={newItem()}
+            onSave={async (item) => {
+              // New items slot into chronological position by start time.
+              await onSaveItems(insertItemByTime(items, item))
+              setAdding(false)
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        </div>
+      )}
       {canEdit && (
         <div className="day-table-footer">
+          {!adding && (
+            <button type="button" className="btn btn-ghost" onClick={() => setAdding(true)}>
+              Add Item
+            </button>
+          )}
           {onDeleteDay && <DeleteDayButton onClick={onDeleteDay} />}
           <button type="button" className="btn btn-ghost btn-danger" onClick={handleClearDay}>
-            Clear day &amp; re-paste
+            Clear all items
           </button>
         </div>
       )}
