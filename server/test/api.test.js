@@ -281,10 +281,12 @@ test('PUT /api/trips/:id round-trips hotelStays with normalization', async () =>
         hotelAddress: ' 315 Yellowstone Ave ',
         checkInDay: '2026-07-18',
         checkOutDay: '2026-07-21',
-        confirmationNumber: ' ABC123 ',
+        confirmations: [
+          { confirmationNumber: ' ABC123 ', rooms: [{ roomType: ' 2 Queens ', guests: 'Jim & Kathy', notes: '' }] },
+        ],
         junkField: 'dropped',
       },
-      { hotelName: 'No Conf Inn', checkInDay: '2026-07-21', checkOutDay: '2026-07-22', confirmationNumber: '' },
+      { hotelName: 'No Conf Inn', checkInDay: '2026-07-21', checkOutDay: '2026-07-22' },
     ],
   })
   assert.equal(res.status, 200)
@@ -294,9 +296,17 @@ test('PUT /api/trips/:id round-trips hotelStays with normalization', async () =>
       hotelAddress: '315 Yellowstone Ave',
       checkInDay: '2026-07-18',
       checkOutDay: '2026-07-21',
-      confirmationNumber: 'ABC123',
+      confirmations: [
+        { confirmationNumber: 'ABC123', rooms: [{ roomType: '2 Queens', guests: 'Jim & Kathy' }] },
+      ],
     },
-    { hotelName: 'No Conf Inn', hotelAddress: '', checkInDay: '2026-07-21', checkOutDay: '2026-07-22' },
+    {
+      hotelName: 'No Conf Inn',
+      hotelAddress: '',
+      checkInDay: '2026-07-21',
+      checkOutDay: '2026-07-22',
+      confirmations: [],
+    },
   ])
   const fetched = await alice.get(`/api/trips/${id}`)
   assert.equal(fetched.body.hotelStays.length, 2)
@@ -311,7 +321,9 @@ test('PUT /api/trips/:id rejects invalid hotelStays', async () => {
     { hotelStays: [{ hotelName: 'X', checkInDay: 'July 18', checkOutDay: '2026-07-21' }] },
     { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-21', checkOutDay: '2026-07-21' }] },
     { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-22', checkOutDay: '2026-07-21' }] },
-    { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-18', checkOutDay: '2026-07-21', confirmationNumber: 7 }] },
+    { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-18', checkOutDay: '2026-07-21', confirmationNumber: 'ABC' }] },
+    { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-18', checkOutDay: '2026-07-21', confirmations: [{}] }] },
+    { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-18', checkOutDay: '2026-07-21', confirmations: [{ confirmationNumber: 'A', rooms: [{ guests: 5 }] }] }] },
   ]
   for (const body of bad) {
     const res = await alice.put(`/api/trips/${id}`).send(body)

@@ -163,7 +163,7 @@ const stayInput = () => ({
       hotelAddress: '315 Yellowstone Ave, West Yellowstone, MT',
       checkInDay: '2026-07-18',
       checkOutDay: '2026-07-21',
-      confirmationNumber: 'ABC123',
+      confirmations: [{ confirmationNumber: 'ABC123', rooms: [] }],
     },
   ],
 })
@@ -530,7 +530,7 @@ test('systemPrompt embeds hotel stays and the coverage rules', () => {
         hotelAddress: '315 Yellowstone Ave',
         checkInDay: '2026-07-18',
         checkOutDay: '2026-07-21',
-        confirmationNumber: 'ABC123',
+        confirmations: [{ confirmationNumber: 'ABC123', rooms: [] }],
       },
     ],
   }

@@ -118,3 +118,54 @@ test('migrateDataDir handles a missing data dir and empty trips', async () => {
   const result = await migrateDataDir(dataDir)
   assert.equal(result.migrated, 0)
 })
+
+test('migrateDataDir converts legacy hotel-stay confirmation numbers', async () => {
+  const trip = {
+    id: 'hotel-trip',
+    name: 'Hotels',
+    days: {},
+    hotelStays: [
+      {
+        hotelName: 'Holiday Inn',
+        hotelAddress: '315 Yellowstone Ave',
+        checkInDay: '2026-07-17',
+        checkOutDay: '2026-07-18',
+        confirmationNumber: ' ABC123 ',
+      },
+      { hotelName: 'No Conf Inn', hotelAddress: '', checkInDay: '2026-07-18', checkOutDay: '2026-07-19' },
+    ],
+  }
+  await writeFile(path.join(dataDir, 'hotel-trip.json'), JSON.stringify(trip))
+
+  const result = await migrateDataDir(dataDir)
+  assert.equal(result.migrated, 1)
+
+  const migrated = JSON.parse(await readFile(path.join(dataDir, 'hotel-trip.json'), 'utf8'))
+  assert.deepEqual(migrated.hotelStays[0].confirmations, [
+    { confirmationNumber: 'ABC123', rooms: [] },
+  ])
+  assert.ok(!('confirmationNumber' in migrated.hotelStays[0]))
+  assert.deepEqual(migrated.hotelStays[1].confirmations, [])
+
+  // Second run is a no-op (idempotent)
+  assert.equal((await migrateDataDir(dataDir)).migrated, 0)
+})
+
+test('migrateDataDir leaves new-shape hotel stays untouched', async () => {
+  const trip = {
+    id: 'new-shape',
+    name: 'New',
+    days: {},
+    hotelStays: [
+      {
+        hotelName: 'Canyon Lodge',
+        hotelAddress: '',
+        checkInDay: '2026-07-18',
+        checkOutDay: '2026-07-19',
+        confirmations: [{ confirmationNumber: 'X1', rooms: [{ roomType: 'Cabin' }] }],
+      },
+    ],
+  }
+  await writeFile(path.join(dataDir, 'new-shape.json'), JSON.stringify(trip))
+  assert.equal((await migrateDataDir(dataDir)).migrated, 0)
+})

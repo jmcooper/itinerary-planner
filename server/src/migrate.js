@@ -34,6 +34,22 @@ export function normalizeTripShape(trip) {
   return true
 }
 
+// Converts legacy hotel stays ({ confirmationNumber: string }) to the
+// multi-confirmation shape ({ confirmations: [{ confirmationNumber, rooms }] }).
+// Returns true if the trip changed.
+export function migrateHotelStays(trip) {
+  let changed = false
+  for (const stay of trip.hotelStays ?? []) {
+    if (typeof stay !== 'object' || stay === null) continue
+    if (Array.isArray(stay.confirmations) && !('confirmationNumber' in stay)) continue
+    const conf = typeof stay.confirmationNumber === 'string' ? stay.confirmationNumber.trim() : ''
+    stay.confirmations = conf ? [{ confirmationNumber: conf, rooms: [] }] : []
+    delete stay.confirmationNumber
+    changed = true
+  }
+  return changed
+}
+
 export async function migrateDataDir(dataDir) {
   let files
   try {
@@ -67,7 +83,8 @@ export async function migrateDataDir(dataDir) {
     if (!trip || typeof trip !== 'object' || !trip.days) continue
     const itemsChanged = migrateTripDays(trip)
     const shapeChanged = normalizeTripShape(trip)
-    if (!itemsChanged && !shapeChanged) continue
+    const staysChanged = migrateHotelStays(trip)
+    if (!itemsChanged && !shapeChanged && !staysChanged) continue
     // Back up the original before overwriting it
     await mkdir(backupDir, { recursive: true })
     await copyFile(full, path.join(backupDir, file))
