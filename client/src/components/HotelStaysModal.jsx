@@ -32,14 +32,9 @@ function CopyButton({ text, label }) {
   )
 }
 
-// showEmpty renders a muted placeholder when there's no number on file —
-// used in the detail modal so its absence is explicit, not a mystery.
 // The whole pill is a button: clicking anywhere on it copies the number.
-function ConfirmationNumber({ value, showEmpty = false }) {
+function ConfirmationPill({ value }) {
   const [copied, setCopied] = useState(false)
-  if (!value) {
-    return showEmpty ? <p className="muted hotel-stay-no-conf">No confirmation # on file.</p> : null
-  }
   return (
     <div className="hotel-stay-conf-row">
       <button
@@ -63,6 +58,36 @@ function ConfirmationNumber({ value, showEmpty = false }) {
       </button>
     </div>
   )
+}
+
+function RoomList({ rooms }) {
+  if (!rooms?.length) return null
+  return (
+    <ul className="hotel-stay-rooms">
+      {rooms.map((room, i) => (
+        <li key={i}>
+          <span className="hotel-stay-room-type">{room.roomType || 'Room'}</span>
+          {room.guests && <span> — {room.guests}</span>}
+          {room.notes && <span className="muted"> · {room.notes}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// One pill per confirmation, its rooms listed beneath. showEmpty renders a
+// muted placeholder when nothing is on file (detail modal only).
+function ConfirmationList({ stay, showEmpty = false }) {
+  const confirmations = stay.confirmations ?? []
+  if (!confirmations.length) {
+    return showEmpty ? <p className="muted hotel-stay-no-conf">No confirmation # on file.</p> : null
+  }
+  return confirmations.map((conf, i) => (
+    <div key={i} className="hotel-stay-conf-group">
+      <ConfirmationPill value={conf.confirmationNumber} />
+      <RoomList rooms={conf.rooms} />
+    </div>
+  ))
 }
 
 // Maps link plus a copy button — the raw address is handy for Uber & co.
@@ -89,7 +114,7 @@ function StayInfo({ stay }) {
     <>
       <div className="hotel-stay-name">{stay.hotelName}</div>
       <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
-      <ConfirmationNumber value={stay.confirmationNumber} />
+      <ConfirmationList stay={stay} />
       <StayAddress address={stay.hotelAddress} />
       {stay.linkedTripName && (
         <p className="muted hotel-stay-source">From “{stay.linkedTripName}” via a linked day</p>
@@ -98,24 +123,134 @@ function StayInfo({ stay }) {
   )
 }
 
-const EMPTY_FORM = {
-  hotelName: '',
-  hotelAddress: '',
-  checkInDay: '',
-  checkOutDay: '',
-  confirmationNumber: '',
+const EMPTY_FORM = { hotelName: '', hotelAddress: '', checkInDay: '', checkOutDay: '' }
+const EMPTY_ROOM = { roomType: '', guests: '', notes: '' }
+
+// Editable confirmation blocks, each with its nested room rows. Controlled:
+// parent owns the array, this renders inputs and add/remove buttons.
+function ConfirmationsEditor({ confirmations, onChange }) {
+  const update = (i, patch) =>
+    onChange(confirmations.map((c, idx) => (idx === i ? { ...c, ...patch } : c)))
+  const setRoomField = (i, r, field, value) =>
+    update(i, {
+      rooms: confirmations[i].rooms.map((room, idx) =>
+        idx === r ? { ...room, [field]: value } : room
+      ),
+    })
+  return (
+    <div className="conf-editor">
+      <span className="conf-editor-title">Confirmations</span>
+      {confirmations.map((conf, i) => (
+        <fieldset key={i} className="conf-block">
+          <div className="conf-block-head">
+            <label>
+              Confirmation #
+              <input
+                type="text"
+                value={conf.confirmationNumber}
+                onChange={(e) => update(i, { confirmationNumber: e.target.value })}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-icon btn-icon-danger"
+              title="Remove confirmation"
+              aria-label={`Remove confirmation ${conf.confirmationNumber || i + 1}`}
+              onClick={() => onChange(confirmations.filter((_, idx) => idx !== i))}
+            >
+              <TrashIcon />
+            </button>
+          </div>
+          {conf.rooms.map((room, r) => (
+            <div key={r} className="conf-room">
+              <input
+                type="text"
+                placeholder="Room type"
+                aria-label="Room type"
+                value={room.roomType}
+                onChange={(e) => setRoomField(i, r, 'roomType', e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Guests"
+                aria-label="Guests"
+                value={room.guests}
+                onChange={(e) => setRoomField(i, r, 'guests', e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Notes"
+                aria-label="Notes"
+                value={room.notes}
+                onChange={(e) => setRoomField(i, r, 'notes', e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn-icon btn-icon-danger"
+                title="Remove room"
+                aria-label={`Remove room ${r + 1}`}
+                onClick={() => update(i, { rooms: conf.rooms.filter((_, idx) => idx !== r) })}
+              >
+                <TrashIcon />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="btn btn-link conf-add-btn"
+            onClick={() => update(i, { rooms: [...conf.rooms, { ...EMPTY_ROOM }] })}
+          >
+            + Add room
+          </button>
+        </fieldset>
+      ))}
+      <button
+        type="button"
+        className="btn btn-link conf-add-btn"
+        onClick={() => onChange([...confirmations, { confirmationNumber: '', rooms: [] }])}
+      >
+        + Add confirmation
+      </button>
+    </div>
+  )
 }
 
 function StayForm({ initial, onSubmit, onCancel, hint = null }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial })
+  const [confirmations, setConfirmations] = useState(() =>
+    (initial?.confirmations ?? []).map((c) => ({
+      confirmationNumber: c.confirmationNumber,
+      rooms: (c.rooms ?? []).map((room) => ({ ...EMPTY_ROOM, ...room })),
+    }))
+  )
   const [error, setError] = useState('')
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
 
   function handleSubmit(e) {
     e.preventDefault()
-    const problem = validateStay(form)
+    const stay = {
+      hotelName: form.hotelName,
+      hotelAddress: form.hotelAddress,
+      checkInDay: form.checkInDay,
+      checkOutDay: form.checkOutDay,
+      confirmations: confirmations.map((c) => ({
+        confirmationNumber: c.confirmationNumber.trim(),
+        // Drop rooms left entirely blank (stray "+ Add room" clicks), then
+        // drop blank fields within each kept room.
+        rooms: c.rooms
+          .filter((room) => room.roomType.trim() || room.guests.trim() || room.notes.trim())
+          .map((room) =>
+            Object.fromEntries(
+              Object.entries(room)
+                .map(([k, v]) => [k, v.trim()])
+                .filter(([, v]) => v)
+            )
+          ),
+      })),
+    }
+    const problem = validateStay(stay)
     if (problem) return setError(problem)
-    onSubmit(form)
+    onSubmit(stay)
   }
 
   return (
@@ -149,10 +284,7 @@ function StayForm({ initial, onSubmit, onCancel, hint = null }) {
           />
         </label>
       </div>
-      <label>
-        Confirmation # (optional)
-        <input type="text" value={form.confirmationNumber} onChange={set('confirmationNumber')} />
-      </label>
+      <ConfirmationsEditor confirmations={confirmations} onChange={setConfirmations} />
       {error && <p className="error">{error}</p>}
       <div className="form-actions">
         <button type="submit" className="btn btn-primary btn-small">
@@ -283,7 +415,7 @@ export function HotelStayDetail({ stay, onClose }) {
     <Modal title={stay.hotelName} onClose={onClose}>
       <div className="hotel-stay-info hotel-stay-detail">
         <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
-        <ConfirmationNumber value={stay.confirmationNumber} showEmpty />
+        <ConfirmationList stay={stay} showEmpty />
         {stay.hotelAddress ? (
           <StayAddress address={stay.hotelAddress} />
         ) : (

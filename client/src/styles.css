@@ -1919,6 +1919,33 @@ label {
   color: var(--ink-faint);
 }
 
+.hotel-stay-conf-group { margin: 0.35rem 0; }
+.hotel-stay-rooms {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0 0 0 0.75rem;
+  font-size: 0.85rem;
+  display: grid;
+  gap: 0.15rem;
+}
+.hotel-stay-room-type { font-weight: 600; }
+.conf-editor { display: flex; flex-direction: column; gap: 0.5rem; }
+.conf-editor-title { font-weight: 600; font-size: 0.9rem; }
+.conf-block {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.6rem;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.conf-block-head { display: flex; align-items: flex-end; gap: 0.5rem; }
+.conf-block-head label { flex: 1; }
+.conf-room { display: flex; gap: 0.4rem; align-items: center; }
+.conf-room input { flex: 1; min-width: 0; }
+.conf-add-btn { align-self: flex-start; font-size: 0.85rem; padding: 0; }
+
 /* Check-in / check-out icon colors (both day tiles and the day header) */
 .hotel-icon-checkin {
   color: var(--success);

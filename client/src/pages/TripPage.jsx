@@ -198,7 +198,8 @@ export default function TripPage() {
   const seenStays = new Set()
   for (const d of Object.values(trip.days ?? {})) {
     for (const stay of d.linkedHotelStays ?? []) {
-      const key = `${stay.hotelName}|${stay.checkInDay}|${stay.checkOutDay}|${stay.confirmationNumber ?? ''}`
+      const confs = (stay.confirmations ?? []).map((c) => c.confirmationNumber).join(',')
+      const key = `${stay.hotelName}|${stay.checkInDay}|${stay.checkOutDay}|${confs}`
       if (seenStays.has(key)) continue
       seenStays.add(key)
       linkedStays.push(stay)
