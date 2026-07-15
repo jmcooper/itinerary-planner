@@ -793,6 +793,8 @@ test('systemPrompt embeds flight trips and the flight rules', () => {
   // Partial-day guidance: complete items list, title/waypoints omittable
   assert.match(prompt, /COMPLETE items list/)
   assert.match(prompt, /title and waypoints may be omitted/)
+  // Airport codes
+  assert.match(prompt, /IATA codes \(SLC, LAX\)/)
   // Without flights the section reads (none)
   assert.match(systemPrompt({ name: 'X', summary: '', days: {} }), /Flight trips[^\n]*\(none\)/)
 })

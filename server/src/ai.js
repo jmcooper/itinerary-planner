@@ -131,6 +131,14 @@ const itineraryUpdateSchema = z.object({
           .array(
             z.object({
               flightNumber: z.string().optional().describe('e.g. "DL1048"'),
+              departureAirport: z
+                .string()
+                .optional()
+                .describe('IATA code of the departure airport, e.g. "SLC"'),
+              arrivalAirport: z
+                .string()
+                .optional()
+                .describe('IATA code of the arrival airport, e.g. "LAX"'),
               departureTime: z
                 .string()
                 .describe('Local departure date+time, YYYY-MM-DDTHH:MM (ignore timezones)'),
@@ -489,7 +497,8 @@ Flights:
 - Record flight bookings in flightTrips — a FULL replacement of the whole list; when adding or editing one booking, include every existing flight trip that should remain — one entry per booking: a round trip or multi-city itinerary is ONE entry whose flights array holds each flight.
 - departureTime and arrivalTime are local wall-clock date+times (YYYY-MM-DDTHH:MM). Never invent them — ask when the traveler doesn't give them. Ignore timezone differences.
 - When adding or changing flights, in the SAME updateItinerary call also add or update an itinerary item on each flight's departure day: timeStart/timeEnd are the departure/arrival clock times, travel: true, a title naming the flight (e.g. "Flight DL1048 to Salt Lake City"), and the confirmation # in the description. Create the day if it doesn't exist yet. Remember the days rule: send each touched day's COMPLETE items list (its existing items plus the flight item), not just the flight item.
-- Ask for the confirmation number, but save the flights without one if the traveler doesn't have it. Never invent flight numbers, ticket numbers, or seats — record them only when the traveler states them.`
+- Ask for the confirmation number, but save the flights without one if the traveler doesn't have it. Never invent flight numbers, ticket numbers, or seats — record them only when the traveler states them.
+- Record departureAirport/arrivalAirport as IATA codes (SLC, LAX). Use the traveler's stated airports; when only cities are named, fill in the city's obvious primary airport code and mention it in your reply — leave them out when the airport is ambiguous.`
 }
 
 // Curated fallback used when live model discovery fails (e.g. transient

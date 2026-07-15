@@ -45,11 +45,13 @@ function SeatChips({ seats }) {
 }
 
 function FlightLine({ flight }) {
+  const route = [flight.departureAirport, flight.arrivalAirport].filter(Boolean).join(' → ')
   return (
     <div className="flight-line">
       <div>
         <span className="flight-number">{flight.flightNumber || 'Flight'}</span>
-        <span className="flight-times"> {formatFlightTimes(flight)}</span>
+        {route && <span className="flight-route"> {route}</span>}
+        <span className="flight-times"> · {formatFlightTimes(flight)}</span>
       </div>
       {flight.ticketNumber && (
         <div className="flight-ticket">
@@ -85,7 +87,14 @@ function FlightTripInfo({ flightTrip }) {
   )
 }
 
-const EMPTY_FLIGHT = { flightNumber: '', departureTime: '', arrivalTime: '', ticketNumber: '' }
+const EMPTY_FLIGHT = {
+  flightNumber: '',
+  departureAirport: '',
+  arrivalAirport: '',
+  departureTime: '',
+  arrivalTime: '',
+  ticketNumber: '',
+}
 const EMPTY_SEAT = { class: '', seatNumber: '' }
 
 function FlightTripForm({ initial, onSubmit, onCancel }) {
@@ -110,6 +119,8 @@ function FlightTripForm({ initial, onSubmit, onCancel }) {
       confirmationNumber: confirmationNumber.trim(),
       flights: flights.map((f) => ({
         flightNumber: f.flightNumber.trim(),
+        departureAirport: f.departureAirport.trim(),
+        arrivalAirport: f.arrivalAirport.trim(),
         departureTime: f.departureTime,
         arrivalTime: f.arrivalTime,
         ticketNumber: f.ticketNumber.trim(),
@@ -152,6 +163,26 @@ function FlightTripForm({ initial, onSubmit, onCancel }) {
               >
                 <TrashIcon />
               </button>
+            </div>
+            <div className="hotel-stay-form-dates">
+              <label>
+                From (airport)
+                <input
+                  type="text"
+                  placeholder="SLC"
+                  value={flight.departureAirport}
+                  onChange={(e) => update(i, { departureAirport: e.target.value })}
+                />
+              </label>
+              <label>
+                To (airport)
+                <input
+                  type="text"
+                  placeholder="LAX"
+                  value={flight.arrivalAirport}
+                  onChange={(e) => update(i, { arrivalAirport: e.target.value })}
+                />
+              </label>
             </div>
             <div className="hotel-stay-form-dates">
               <label>

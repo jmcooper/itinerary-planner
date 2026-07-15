@@ -35,10 +35,12 @@ export function normalizeFlightTrips(input) {
         arrivalTime: rawFlight.arrivalTime,
         seats: [],
       }
-      for (const field of ['flightNumber', 'ticketNumber']) {
+      for (const field of ['flightNumber', 'ticketNumber', 'departureAirport', 'arrivalAirport']) {
         if (rawFlight[field] != null && typeof rawFlight[field] !== 'string')
           return { error: `${field} must be a string` }
-        const value = (rawFlight[field] ?? '').trim()
+        let value = (rawFlight[field] ?? '').trim()
+        // Airport codes read best uppercase (slc → SLC).
+        if (field.endsWith('Airport') && /^[a-z0-9]{3,4}$/i.test(value)) value = value.toUpperCase()
         if (value) flight[field] = value
       }
       if (rawFlight.seats != null) {

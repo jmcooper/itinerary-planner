@@ -66,3 +66,15 @@ test('rejects bad payloads', () => {
   ]
   for (const input of bad) assert.ok(normalizeFlightTrips(input).error, JSON.stringify(input))
 })
+
+test('airport codes are trimmed and short codes uppercased', () => {
+  const { flightTrips } = normalizeFlightTrips([
+    { flights: [flight({ departureAirport: ' slc ', arrivalAirport: 'Los Angeles Intl' })] },
+  ])
+  assert.equal(flightTrips[0].flights[0].departureAirport, 'SLC')
+  assert.equal(flightTrips[0].flights[0].arrivalAirport, 'Los Angeles Intl')
+  assert.ok(normalizeFlightTrips([{ flights: [flight({ departureAirport: 7 })] }]).error)
+  // omitted airports stay omitted
+  const bare = normalizeFlightTrips([{ flights: [flight()] }]).flightTrips[0].flights[0]
+  assert.ok(!('departureAirport' in bare))
+})
