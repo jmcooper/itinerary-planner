@@ -1926,16 +1926,27 @@ label {
   color: var(--ink-faint);
 }
 
-.hotel-stay-conf-group { margin: 0.35rem 0; }
+/* Each confirmation and its rooms sit on a soft tint so they read as one
+   reservation. */
+.hotel-stay-conf-group {
+  margin: 0.2rem 0 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.hotel-stay-conf-group .hotel-stay-conf-row {
+  margin: 0;
+}
 .hotel-stay-rooms {
   list-style: none;
-  margin: 0.3rem 0 0;
-  padding: 0 0 0 0.75rem;
+  margin: 0.4rem 0 0;
+  padding: 0 0 0 0.25rem;
   font-size: 0.85rem;
   display: grid;
-  gap: 0.15rem;
+  gap: 0.2rem;
 }
 .hotel-stay-room-type { font-weight: 600; }
+.hotel-stay-detail-head p { margin: 0; }
 .conf-editor { display: flex; flex-direction: column; gap: 0.5rem; }
 .conf-editor-title { font-weight: 600; font-size: 0.9rem; }
 .conf-block {

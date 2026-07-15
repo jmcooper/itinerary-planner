@@ -113,9 +113,9 @@ function StayInfo({ stay }) {
   return (
     <>
       <div className="hotel-stay-name">{stay.hotelName}</div>
+      <StayAddress address={stay.hotelAddress} />
       <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
       <ConfirmationList stay={stay} />
-      <StayAddress address={stay.hotelAddress} />
       {stay.linkedTripName && (
         <p className="muted hotel-stay-source">From “{stay.linkedTripName}” via a linked day</p>
       )}
@@ -435,7 +435,11 @@ export function HotelStayDetail({ stay, canEdit = false, onSave, onClose }) {
       ) : (
         <div className="hotel-stay-info hotel-stay-detail">
           <div className="hotel-stay-detail-head">
-            <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
+            {stay.hotelAddress ? (
+              <StayAddress address={stay.hotelAddress} />
+            ) : (
+              <p className="muted">No address on file.</p>
+            )}
             {canEdit && (
               <button
                 type="button"
@@ -448,12 +452,8 @@ export function HotelStayDetail({ stay, canEdit = false, onSave, onClose }) {
               </button>
             )}
           </div>
+          <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
           <ConfirmationList stay={stay} showEmpty />
-          {stay.hotelAddress ? (
-            <StayAddress address={stay.hotelAddress} />
-          ) : (
-            <p className="muted">No address on file.</p>
-          )}
           {stay.linkedTripName && (
             <p className="muted hotel-stay-source">From “{stay.linkedTripName}” via a linked day</p>
           )}
