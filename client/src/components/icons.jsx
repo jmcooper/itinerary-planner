@@ -57,3 +57,11 @@ export function TrashIcon() {
     </svg>
   )
 }
+
+export function PlaneIcon({ size = 14 }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" aria-hidden="true">
+      <path d="M21.5 15.5v-2l-8.5-5V3a1.5 1.5 0 0 0-3 0v5.5l-8.5 5v2l8.5-2.5v5.2l-2.3 1.7v1.6l3.8-1 3.8 1v-1.6L13 18.7v-5.2l8.5 2z" />
+    </svg>
+  )
+}
