@@ -5,7 +5,7 @@ import { formatDay } from '../lib/dates.js'
 import { buildDayItems } from '../lib/parse.js'
 import { convertImportItems, insertItemByTime } from '../lib/time.js'
 import ItineraryRow, { ItemEditForm } from './ItineraryRow.jsx'
-import { PencilIcon, TrashIcon, CheckInIcon, CheckOutIcon } from './icons.jsx'
+import { PencilIcon, TrashIcon, CheckInIcon, CheckOutIcon, PlaneIcon } from './icons.jsx'
 
 export default function DayView({
   tripId,
@@ -21,6 +21,8 @@ export default function DayView({
   onOpenStay,
   onAddStay,
   onSetHotelNotNeeded,
+  flightTrips = [],
+  onOpenFlightTrip,
   onLinkDay,
   onUnlinkDay,
 }) {
@@ -74,6 +76,18 @@ export default function DayView({
                 onClick={() => onOpenStay?.(stay)}
               >
                 {out ? <CheckOutIcon size={25} /> : <CheckInIcon size={25} />}
+              </button>
+            ))}
+            {flightTrips.map((ft, i) => (
+              <button
+                key={`f${i}`}
+                type="button"
+                className="btn-icon day-hotel-icon flight-icon"
+                title={`Flights${ft.confirmationNumber ? ` — ${ft.confirmationNumber}` : ''}`}
+                aria-label={`Flights on this day${ft.confirmationNumber ? ` — confirmation ${ft.confirmationNumber}` : ''}`}
+                onClick={() => onOpenFlightTrip?.(ft)}
+              >
+                <PlaneIcon size={25} />
               </button>
             ))}
           </div>

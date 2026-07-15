@@ -13,7 +13,7 @@ function formatStayRange(stay) {
   return `${from.weekday}, ${from.label} → ${to.weekday}, ${to.label} · ${nights} night${nights === 1 ? '' : 's'}`
 }
 
-function CopyButton({ text, label }) {
+export function CopyButton({ text, label, size }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
@@ -27,13 +27,13 @@ function CopyButton({ text, label }) {
         setTimeout(() => setCopied(false), 1500)
       }}
     >
-      {copied ? '✓' : <CopyIcon />}
+      {copied ? '✓' : <CopyIcon size={size} />}
     </button>
   )
 }
 
 // The whole pill is a button: clicking anywhere on it copies the number.
-function ConfirmationPill({ value }) {
+export function ConfirmationPill({ value }) {
   const [copied, setCopied] = useState(false)
   return (
     <div className="hotel-stay-conf-row">

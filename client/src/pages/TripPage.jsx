@@ -6,8 +6,10 @@ import DayView from '../components/DayView.jsx'
 import SharePanel from '../components/SharePanel.jsx'
 import ChatPanel from '../components/ChatPanel.jsx'
 import { HotelStaysModal, HotelStayDetail } from '../components/HotelStaysModal.jsx'
-import { GearIcon, CheckInIcon, CheckOutIcon } from '../components/icons.jsx'
+import { FlightsModal, FlightTripDetail } from '../components/FlightsModal.jsx'
+import { GearIcon, CheckInIcon, CheckOutIcon, PlaneIcon } from '../components/icons.jsx'
 import { checkInsOn, checkOutsOn, isMissingStay } from '../lib/hotels.js'
+import { flightTripsTouchingDay } from '../lib/flights.js'
 
 export default function TripPage() {
   const { id } = useParams()
@@ -24,6 +26,9 @@ export default function TripPage() {
   // null | {type:'list'} | {type:'add', prefillCheckIn} | {type:'stay', stay, index}
   // (index points into trip.hotelStays; -1 for read-only linked stays)
   const [hotelModal, setHotelModal] = useState(null)
+  // null | {type:'list'} | {type:'add'} | {type:'trip', ft, index}
+  // (index points into trip.flightTrips; -1 for read-only linked trips)
+  const [flightModal, setFlightModal] = useState(null)
   const [mobileView, setMobileView] = useState(initialPrompt ? 'chat' : 'itinerary')
   const [chatBusy, setChatBusy] = useState(Boolean(initialPrompt))
 
@@ -208,6 +213,22 @@ export default function TripPage() {
   }
   const allStays = [...hotelStays, ...linkedStays]
 
+  const flightTrips = trip.flightTrips ?? []
+  // Flight trips carried in by ANY linked day participate trip-wide, deduped.
+  const linkedFlightTrips = []
+  const seenFlightTrips = new Set()
+  for (const d of Object.values(trip.days ?? {})) {
+    for (const ft of d.linkedFlightTrips ?? []) {
+      const key = `${ft.confirmationNumber ?? ''}|${(ft.flights ?? [])
+        .map((f) => `${f.flightNumber ?? ''}@${f.departureTime}`)
+        .join(',')}`
+      if (seenFlightTrips.has(key)) continue
+      seenFlightTrips.add(key)
+      linkedFlightTrips.push(ft)
+    }
+  }
+  const allFlightTrips = [...flightTrips, ...linkedFlightTrips]
+
   const itinerary = needsDates ? (
     <AddDaysForm
       onCancel={dates.length > 0 ? () => setEditingDates(false) : null}
@@ -240,6 +261,7 @@ export default function TripPage() {
               ...checkOutsOn(allStays, date).map((stay) => ({ stay, out: true })),
               ...checkInsOn(allStays, date).map((stay) => ({ stay, out: false })),
             ]
+            const dayFlightTrips = flightTripsTouchingDay(allFlightTrips, date)
             return (
               <li key={date} className="day-nav-li">
                 <button
@@ -256,7 +278,7 @@ export default function TripPage() {
                     title={hasItems ? 'Itinerary added' : 'No itinerary yet'}
                   />
                 </button>
-                {hotelMarks.length > 0 && (
+                {(hotelMarks.length > 0 || dayFlightTrips.length > 0) && (
                   <span className="day-nav-hotel-icons">
                     {hotelMarks.map(({ stay, out }, j) => (
                       <button
@@ -268,6 +290,18 @@ export default function TripPage() {
                         onClick={() => setHotelModal({ type: 'stay', stay, index: hotelStays.indexOf(stay) })}
                       >
                         {out ? <CheckOutIcon size={17} /> : <CheckInIcon size={17} />}
+                      </button>
+                    ))}
+                    {dayFlightTrips.map((ft, j) => (
+                      <button
+                        key={`f${j}`}
+                        type="button"
+                        className="day-nav-hotel-icon flight-icon"
+                        title={`Flights${ft.confirmationNumber ? ` — ${ft.confirmationNumber}` : ''}`}
+                        aria-label={`Flights on this day${ft.confirmationNumber ? ` — confirmation ${ft.confirmationNumber}` : ''}`}
+                        onClick={() => setFlightModal({ type: 'trip', ft, index: flightTrips.indexOf(ft) })}
+                      >
+                        <PlaneIcon size={17} />
                       </button>
                     ))}
                   </span>
@@ -292,6 +326,8 @@ export default function TripPage() {
             onOpenStay={(stay) => setHotelModal({ type: 'stay', stay, index: hotelStays.indexOf(stay) })}
             onAddStay={() => setHotelModal({ type: 'add', prefillCheckIn: selectedDate })}
             onSetHotelNotNeeded={(flag) => setHotelNotNeeded(selectedDate, flag)}
+            flightTrips={flightTripsTouchingDay(allFlightTrips, selectedDate)}
+            onOpenFlightTrip={(ft) => setFlightModal({ type: 'trip', ft, index: flightTrips.indexOf(ft) })}
             onSaveDay={(patch) => saveDay(selectedDate, patch)}
             onLinkDay={(targetTripId) => linkDay(selectedDate, targetTripId)}
             onUnlinkDay={() => unlinkDay(selectedDate)}
@@ -343,6 +379,11 @@ export default function TripPage() {
                 Hotel stays{allStays.length > 0 ? ` (${allStays.length})` : ''}
               </button>
             )}
+            {dates.length > 0 && (canEdit || allFlightTrips.length > 0) && (
+              <button type="button" className="btn btn-link" onClick={() => setFlightModal({ type: 'list' })}>
+                Flights{allFlightTrips.length > 0 ? ` (${allFlightTrips.length})` : ''}
+              </button>
+            )}
           </p>
           {trip.summary && <p className="trip-summary">{trip.summary}</p>}
         </div>
@@ -376,6 +417,31 @@ export default function TripPage() {
             return saveTrip({ hotelStays: next })
           }}
           onClose={() => setHotelModal(null)}
+        />
+      )}
+
+      {(flightModal?.type === 'list' || flightModal?.type === 'add') && (
+        <FlightsModal
+          flightTrips={flightTrips}
+          linkedFlightTrips={linkedFlightTrips}
+          canEdit={canEdit}
+          initialAdd={flightModal.type === 'add'}
+          onSave={(next) => saveTrip({ flightTrips: next })}
+          onClose={() => setFlightModal(null)}
+        />
+      )}
+      {flightModal?.type === 'trip' && (
+        <FlightTripDetail
+          flightTrip={
+            flightModal.index >= 0 ? (flightTrips[flightModal.index] ?? flightModal.ft) : flightModal.ft
+          }
+          canEdit={canEdit && flightModal.index >= 0}
+          onSave={(ft) => {
+            const next = [...flightTrips]
+            next[flightModal.index] = ft
+            return saveTrip({ flightTrips: next })
+          }}
+          onClose={() => setFlightModal(null)}
         />
       )}
 
