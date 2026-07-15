@@ -4,7 +4,7 @@
 
 **Goal:** Each hotel stay holds multiple confirmations, each with optional room details (roomType/guests/notes), editable via the UI and the travel agent.
 
-**Architecture:** The stay-level `confirmationNumber` string becomes a `confirmations: [{ confirmationNumber, rooms: [...] }]` array. `normalizeHotelStays` (shared by REST PUT and the agent tool) accepts both shapes and always emits the new one — lazy migration, no data script. The client gets a `stayConfirmations(stay)` helper so display/edit code tolerates old stored data.
+**Architecture:** The stay-level `confirmationNumber` string becomes a `confirmations: [{ confirmationNumber, rooms: [...] }]` array. A one-time converter in the existing startup migration (`migrateDataDir`, which backs up originals) rewrites stored trips; after that, all runtime code — `normalizeHotelStays`, the client, the agent — handles **only** the new shape. A legacy `confirmationNumber` key on input is rejected with a clear error, never silently dropped.
 
 **Tech Stack:** Node/Express + node:test/supertest (server), React/Vite + vitest (client), Genkit + zod (agent), Playwright (browser verification).
 
@@ -13,25 +13,81 @@
 ## Global Constraints
 
 - `confirmationNumber` is required (non-empty) per confirmation entry; a stay may have **zero** confirmations.
-- `rooms` optional/may be empty; `roomType`, `guests`, `notes` optional strings; empty optional fields are omitted from storage.
+- `rooms` optional on input/may be empty; storage always writes `rooms` (possibly `[]`). `roomType`, `guests`, `notes` optional strings; empty optional fields are omitted from storage.
 - `hotelAddress` stays optional everywhere (unchanged).
-- No on-disk migration; legacy `confirmationNumber` accepted on input indefinitely, folded to the new shape on save.
+- One-time startup migration converts stored data; runtime code supports ONLY the new shape. Legacy `confirmationNumber` on API/tool input → validation error, not silent stripping.
 - `hotelStays` remains a FULL-replacement list in both REST PUT and the agent tool.
-- The dev server runs without `--watch`: restart `node src/index.js` after server edits before browser/live verification.
+- The dev server runs without `--watch`: restart `node src/index.js` after server edits before browser/live verification (the restart also runs the migration).
 
 ---
 
-### Task 1: Server normalization — confirmations with rooms
+### Task 1: Startup migration + new-shape-only normalization
 
 **Files:**
+- Modify: `server/src/migrate.js` (add `migrateHotelStays`, wire into `migrateDataDir`)
 - Modify: `server/src/hotels.js` (whole file, 37 lines)
 - Create: `server/test/hotels.test.js`
-- Modify: `server/test/api.test.js:274-320` (shape assertions), `server/test/ai.test.js:171-178` (shape assertion)
+- Modify: `server/test/migrate.test.js` (new migration tests), `server/test/api.test.js:274-320` (send/expect new shape), `server/test/ai.test.js:159-187` (stayInput → new shape)
 
 **Interfaces:**
-- Produces: `normalizeHotelStays(input) → { stays } | { error }` (unchanged signature). Every emitted stay now has `confirmations: [{ confirmationNumber: string, rooms: [{ roomType?, guests?, notes? }] }]` and never a `confirmationNumber` key. Legacy `confirmationNumber` input folds to one confirmation with `rooms: []`; both present → `confirmations` wins.
+- Produces: `migrateHotelStays(trip) → boolean` (true if the trip changed) exported from `server/src/migrate.js`. `normalizeHotelStays(input) → { stays } | { error }` (unchanged signature); every emitted stay has `confirmations: [{ confirmationNumber: string, rooms: [{ roomType?, guests?, notes? }] }]`; a stay input carrying a `confirmationNumber` key returns `{ error: 'confirmationNumber has been replaced by confirmations' }`.
 
-- [ ] **Step 1: Write the failing tests** — create `server/test/hotels.test.js`:
+- [ ] **Step 1: Write the failing migration tests** — append to `server/test/migrate.test.js`:
+
+```js
+test('migrateDataDir converts legacy hotel-stay confirmation numbers', async () => {
+  const trip = {
+    id: 'hotel-trip',
+    name: 'Hotels',
+    days: {},
+    hotelStays: [
+      {
+        hotelName: 'Holiday Inn',
+        hotelAddress: '315 Yellowstone Ave',
+        checkInDay: '2026-07-17',
+        checkOutDay: '2026-07-18',
+        confirmationNumber: ' ABC123 ',
+      },
+      { hotelName: 'No Conf Inn', hotelAddress: '', checkInDay: '2026-07-18', checkOutDay: '2026-07-19' },
+    ],
+  }
+  await writeFile(path.join(dataDir, 'hotel-trip.json'), JSON.stringify(trip))
+
+  const result = await migrateDataDir(dataDir)
+  assert.equal(result.migrated, 1)
+
+  const migrated = JSON.parse(await readFile(path.join(dataDir, 'hotel-trip.json'), 'utf8'))
+  assert.deepEqual(migrated.hotelStays[0].confirmations, [
+    { confirmationNumber: 'ABC123', rooms: [] },
+  ])
+  assert.ok(!('confirmationNumber' in migrated.hotelStays[0]))
+  assert.deepEqual(migrated.hotelStays[1].confirmations, [])
+
+  // Second run is a no-op (idempotent)
+  assert.equal((await migrateDataDir(dataDir)).migrated, 0)
+})
+
+test('migrateDataDir leaves new-shape hotel stays untouched', async () => {
+  const trip = {
+    id: 'new-shape',
+    name: 'New',
+    days: {},
+    hotelStays: [
+      {
+        hotelName: 'Canyon Lodge',
+        hotelAddress: '',
+        checkInDay: '2026-07-18',
+        checkOutDay: '2026-07-19',
+        confirmations: [{ confirmationNumber: 'X1', rooms: [{ roomType: 'Cabin' }] }],
+      },
+    ],
+  }
+  await writeFile(path.join(dataDir, 'new-shape.json'), JSON.stringify(trip))
+  assert.equal((await migrateDataDir(dataDir)).migrated, 0)
+})
+```
+
+- [ ] **Step 2: Write the failing normalization tests** — create `server/test/hotels.test.js`:
 
 ```js
 import test from 'node:test'
@@ -40,13 +96,7 @@ import { normalizeHotelStays } from '../src/hotels.js'
 
 const base = { hotelName: 'Inn', hotelAddress: '', checkInDay: '2026-07-18', checkOutDay: '2026-07-19' }
 
-test('legacy confirmationNumber folds into confirmations', () => {
-  const { stays } = normalizeHotelStays([{ ...base, confirmationNumber: ' ABC123 ' }])
-  assert.deepEqual(stays[0].confirmations, [{ confirmationNumber: 'ABC123', rooms: [] }])
-  assert.equal('confirmationNumber' in stays[0], false)
-})
-
-test('no confirmation number yields an empty confirmations list', () => {
+test('a stay without confirmations gets an empty list', () => {
   const { stays } = normalizeHotelStays([{ ...base }])
   assert.deepEqual(stays[0].confirmations, [])
 })
@@ -73,11 +123,9 @@ test('confirmations round-trip with trimmed room fields, empty fields dropped', 
   ])
 })
 
-test('confirmations wins over a legacy confirmationNumber on the same stay', () => {
-  const { stays } = normalizeHotelStays([
-    { ...base, confirmationNumber: 'OLD', confirmations: [{ confirmationNumber: 'NEW' }] },
-  ])
-  assert.deepEqual(stays[0].confirmations, [{ confirmationNumber: 'NEW', rooms: [] }])
+test('the legacy confirmationNumber key is rejected, not silently dropped', () => {
+  const { error } = normalizeHotelStays([{ ...base, confirmationNumber: 'ABC123' }])
+  assert.match(error, /replaced by confirmations/)
 })
 
 test('rejects bad confirmations payloads', () => {
@@ -92,11 +140,42 @@ test('rejects bad confirmations payloads', () => {
 })
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [ ] **Step 3: Run to verify failure**
 
-Run: `cd server; npm test -- --test-name-pattern=confirmations` — expect the new tests FAIL (`confirmations` is undefined on output stays).
+Run: `cd server; npm test` — expect the new tests FAIL (`migrateHotelStays` doesn't exist; `confirmations` is undefined on output stays).
 
-- [ ] **Step 3: Implement** — replace the body of `server/src/hotels.js` with:
+- [ ] **Step 4: Implement the migration.** In `server/src/migrate.js`, add after `normalizeTripShape`:
+
+```js
+// Converts legacy hotel stays ({ confirmationNumber: string }) to the
+// multi-confirmation shape ({ confirmations: [{ confirmationNumber, rooms }] }).
+// Returns true if the trip changed.
+export function migrateHotelStays(trip) {
+  let changed = false
+  for (const stay of trip.hotelStays ?? []) {
+    if (typeof stay !== 'object' || stay === null) continue
+    if (Array.isArray(stay.confirmations) && !('confirmationNumber' in stay)) continue
+    const conf = typeof stay.confirmationNumber === 'string' ? stay.confirmationNumber.trim() : ''
+    stay.confirmations = conf ? [{ confirmationNumber: conf, rooms: [] }] : []
+    delete stay.confirmationNumber
+    changed = true
+  }
+  return changed
+}
+```
+
+Wire it into `migrateDataDir` (line 68-70):
+
+```js
+    const itemsChanged = migrateTripDays(trip)
+    const shapeChanged = normalizeTripShape(trip)
+    const staysChanged = migrateHotelStays(trip)
+    if (!itemsChanged && !shapeChanged && !staysChanged) continue
+```
+
+Note `migrateHotelStays` also sets `confirmations: []` on stays that have *neither* key — that is intentional (one uniform shape on disk) and is what the idempotence test exercises.
+
+- [ ] **Step 5: Implement normalization.** Replace the body of `server/src/hotels.js` with:
 
 ```js
 // Hotel-stay validation shared by the REST PUT handler and the AI agent's
@@ -104,8 +183,9 @@ Run: `cd server; npm test -- --test-name-pattern=confirmations` — expect the n
 // checkOutDay (exclusive) — the check-out day itself needs its own stay.
 //
 // Each stay carries confirmations: [{ confirmationNumber, rooms }]. The
-// legacy single confirmationNumber string is still accepted on input and
-// folded into the new shape, so stored trips migrate lazily on save.
+// legacy single confirmationNumber string was converted by the startup
+// migration (server/src/migrate.js); on input it is an explicit error so
+// stale clients can't silently lose data.
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 const ROOM_FIELDS = ['roomType', 'guests', 'notes']
@@ -150,6 +230,8 @@ export function normalizeHotelStays(input) {
   for (const raw of input) {
     if (typeof raw !== 'object' || raw === null)
       return { error: 'each hotel stay must be an object' }
+    if ('confirmationNumber' in raw)
+      return { error: 'confirmationNumber has been replaced by confirmations' }
     const hotelName = typeof raw.hotelName === 'string' ? raw.hotelName.trim() : ''
     if (!hotelName) return { error: 'each hotel stay needs a hotelName' }
     if (raw.hotelAddress != null && typeof raw.hotelAddress !== 'string')
@@ -164,17 +246,12 @@ export function normalizeHotelStays(input) {
       checkInDay: raw.checkInDay,
       checkOutDay: raw.checkOutDay,
     }
-    // New shape wins; the legacy confirmationNumber string is folded in only
-    // when no confirmations array was given.
     if (raw.confirmations != null) {
       const { confirmations, error } = normalizeConfirmations(raw.confirmations)
       if (error) return { error }
       stay.confirmations = confirmations
     } else {
-      if (raw.confirmationNumber != null && typeof raw.confirmationNumber !== 'string')
-        return { error: 'confirmationNumber must be a string' }
-      const conf = (raw.confirmationNumber ?? '').trim()
-      stay.confirmations = conf ? [{ confirmationNumber: conf, rooms: [] }] : []
+      stay.confirmations = []
     }
     stays.push(stay)
   }
@@ -182,16 +259,39 @@ export function normalizeHotelStays(input) {
 }
 ```
 
-- [ ] **Step 4: Update existing shape assertions.** In `server/test/api.test.js` (test `PUT /api/trips/:id round-trips hotelStays with normalization`, lines 291-300) replace the expected array with:
+- [ ] **Step 6: Update existing tests to the new shape.**
+
+In `server/test/api.test.js`, rewrite `PUT /api/trips/:id round-trips hotelStays with normalization` (lines 274-303) to send and expect the new shape:
 
 ```js
+test('PUT /api/trips/:id round-trips hotelStays with normalization', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Hotel Trip' })
+  const id = created.body.id
+  const res = await alice.put(`/api/trips/${id}`).send({
+    hotelStays: [
+      {
+        hotelName: '  Holiday Inn  ',
+        hotelAddress: ' 315 Yellowstone Ave ',
+        checkInDay: '2026-07-18',
+        checkOutDay: '2026-07-21',
+        confirmations: [
+          { confirmationNumber: ' ABC123 ', rooms: [{ roomType: ' 2 Queens ', guests: 'Jim & Kathy', notes: '' }] },
+        ],
+        junkField: 'dropped',
+      },
+      { hotelName: 'No Conf Inn', checkInDay: '2026-07-21', checkOutDay: '2026-07-22' },
+    ],
+  })
+  assert.equal(res.status, 200)
   assert.deepEqual(res.body.hotelStays, [
     {
       hotelName: 'Holiday Inn',
       hotelAddress: '315 Yellowstone Ave',
       checkInDay: '2026-07-18',
       checkOutDay: '2026-07-21',
-      confirmations: [{ confirmationNumber: 'ABC123', rooms: [] }],
+      confirmations: [
+        { confirmationNumber: 'ABC123', rooms: [{ roomType: '2 Queens', guests: 'Jim & Kathy' }] },
+      ],
     },
     {
       hotelName: 'No Conf Inn',
@@ -201,19 +301,24 @@ export function normalizeHotelStays(input) {
       confirmations: [],
     },
   ])
+  const fetched = await alice.get(`/api/trips/${id}`)
+  assert.equal(fetched.body.hotelStays.length, 2)
+})
 ```
 
-Append to the `bad` list in `PUT /api/trips/:id rejects invalid hotelStays` (line 315):
+In `PUT /api/trips/:id rejects invalid hotelStays` (line 308-315), replace the legacy-typed case `confirmationNumber: 7` with legacy-key and new-shape bad cases:
 
 ```js
+    { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-18', checkOutDay: '2026-07-21', confirmationNumber: 'ABC' }] },
     { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-18', checkOutDay: '2026-07-21', confirmations: [{}] }] },
     { hotelStays: [{ hotelName: 'X', checkInDay: '2026-07-18', checkOutDay: '2026-07-21', confirmations: [{ confirmationNumber: 'A', rooms: [{ guests: 5 }] }] }] },
 ```
 
-In `server/test/ai.test.js` (test `applyItineraryUpdate saves hotelStays alone...`, line 177) replace `assert.deepEqual(trip.hotelStays, stayInput().hotelStays)` with:
+In `server/test/ai.test.js`, rewrite `stayInput` (lines 159-169) to the new shape and fix the round-trip assertion (line 177):
 
 ```js
-  assert.deepEqual(trip.hotelStays, [
+const stayInput = () => ({
+  hotelStays: [
     {
       hotelName: 'Holiday Inn West Yellowstone',
       hotelAddress: '315 Yellowstone Ave, West Yellowstone, MT',
@@ -221,66 +326,42 @@ In `server/test/ai.test.js` (test `applyItineraryUpdate saves hotelStays alone..
       checkOutDay: '2026-07-21',
       confirmations: [{ confirmationNumber: 'ABC123', rooms: [] }],
     },
-  ])
+  ],
+})
 ```
 
-- [ ] **Step 5: Run the full server suite**
+```js
+  assert.deepEqual(trip.hotelStays, stayInput().hotelStays)
+```
 
-Run: `cd server; npm test` — expect ALL PASS (116 existing + 5 new).
+(The deepEqual keeps working because `stayInput()` is already fully normalized.) Also update the `systemPrompt embeds hotel stays` test (line 527-535): change the trip's stay to
+`confirmations: [{ confirmationNumber: 'ABC123', rooms: [] }]` in place of `confirmationNumber: 'ABC123'` — the `ABC123` regex assertion then still passes.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Run the full server suite**
+
+Run: `cd server; npm test` — expect ALL PASS.
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add server/src/hotels.js server/test/hotels.test.js server/test/api.test.js server/test/ai.test.js
-git commit -m "Store hotel-stay confirmations with rooms; fold legacy confirmationNumber"
+git add server/src/migrate.js server/src/hotels.js server/test/hotels.test.js server/test/migrate.test.js server/test/api.test.js server/test/ai.test.js
+git commit -m "Migrate hotel stays to multi-confirmation shape at startup"
 ```
 
 ---
 
-### Task 2: Client helpers — read both shapes, validate blocks
+### Task 2: Client validation for confirmation blocks
 
 **Files:**
-- Modify: `client/src/lib/hotels.js` (add `stayConfirmations`, extend `validateStay`)
+- Modify: `client/src/lib/hotels.js` (extend `validateStay`)
 - Test: `client/src/lib/hotels.test.js`
 
 **Interfaces:**
-- Produces: `stayConfirmations(stay) → [{ confirmationNumber, rooms: [] }]` — normalized list from either the legacy `{ confirmationNumber }` shape or the new `{ confirmations }` shape; `rooms` always an array. `validateStay(stay)` additionally returns `'Every confirmation needs a confirmation #.'` when any entry in `stay.confirmations` has a blank number.
+- Produces: `validateStay(stay)` additionally returns `'Every confirmation needs a confirmation #.'` when any entry in `stay.confirmations` has a blank `confirmationNumber`. No other helper changes; display code reads `stay.confirmations ?? []` directly.
 
-- [ ] **Step 1: Write the failing tests** — append to `client/src/lib/hotels.test.js`:
+- [ ] **Step 1: Write the failing tests** — append to `client/src/lib/hotels.test.js` (match the file's existing vitest style; it already imports `validateStay`):
 
 ```js
-import { stayConfirmations } from './hotels.js' // merge into the existing import
-
-describe('stayConfirmations', () => {
-  it('reads the legacy confirmationNumber shape', () => {
-    expect(stayConfirmations({ confirmationNumber: 'ABC123' })).toEqual([
-      { confirmationNumber: 'ABC123', rooms: [] },
-    ])
-    expect(stayConfirmations({ confirmationNumber: '' })).toEqual([])
-    expect(stayConfirmations({})).toEqual([])
-  })
-
-  it('reads the new confirmations shape and defaults rooms', () => {
-    expect(
-      stayConfirmations({
-        confirmations: [
-          { confirmationNumber: 'A', rooms: [{ roomType: 'Cabin' }] },
-          { confirmationNumber: 'B' },
-        ],
-      })
-    ).toEqual([
-      { confirmationNumber: 'A', rooms: [{ roomType: 'Cabin' }] },
-      { confirmationNumber: 'B', rooms: [] },
-    ])
-  })
-
-  it('prefers confirmations when both shapes are present', () => {
-    expect(
-      stayConfirmations({ confirmationNumber: 'OLD', confirmations: [{ confirmationNumber: 'NEW' }] })
-    ).toEqual([{ confirmationNumber: 'NEW', rooms: [] }])
-  })
-})
-
 describe('validateStay confirmations', () => {
   const base = { hotelName: 'Inn', checkInDay: '2026-07-18', checkOutDay: '2026-07-19' }
   it('rejects a blank confirmation #', () => {
@@ -295,26 +376,11 @@ describe('validateStay confirmations', () => {
 })
 ```
 
-(Match the file's existing vitest style — it already imports `validateStay`; extend that import list.)
-
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd client; npm test` — expect FAIL (`stayConfirmations` is not exported).
+Run: `cd client; npm test` — expect the blank-# test to FAIL (validateStay returns null today).
 
-- [ ] **Step 3: Implement** — in `client/src/lib/hotels.js`, add after `isMissingStay` and extend `validateStay`:
-
-```js
-// Returns the normalized confirmations list from either the legacy
-// { confirmationNumber } shape or the new { confirmations } shape, so
-// display code tolerates trips stored before the migration.
-export function stayConfirmations(stay) {
-  if (Array.isArray(stay?.confirmations)) {
-    return stay.confirmations.map((c) => ({ ...c, rooms: c.rooms ?? [] }))
-  }
-  const conf = (stay?.confirmationNumber ?? '').trim()
-  return conf ? [{ confirmationNumber: conf, rooms: [] }] : []
-}
-```
+- [ ] **Step 3: Implement** — in `client/src/lib/hotels.js`, extend `validateStay`:
 
 ```js
 export function validateStay(stay) {
@@ -337,7 +403,7 @@ Run: `cd client; npm test` — expect ALL PASS.
 
 ```bash
 git add client/src/lib/hotels.js client/src/lib/hotels.test.js
-git commit -m "Add stayConfirmations helper and confirmation validation"
+git commit -m "Validate confirmation blocks in stay validation"
 ```
 
 ---
@@ -350,9 +416,9 @@ git commit -m "Add stayConfirmations helper and confirmation validation"
 
 **Interfaces:**
 - Consumes: Task 1's `normalizeHotelStays` (already wired into `applyItineraryUpdate` — no apply-code change needed).
-- Produces: tool input stays accept `confirmations` (new) and `confirmationNumber` (legacy, so mid-flight chats keep working).
+- Produces: tool input stays accept `confirmations`; a legacy `confirmationNumber` passes the zod schema (deprecation tombstone) and is rejected by `normalizeHotelStays` with a clear retry message — never silently stripped.
 
-- [ ] **Step 1: Write the failing tests** — append to `server/test/ai.test.js` near the existing stay tests (after line 187):
+- [ ] **Step 1: Write the failing tests** — append to `server/test/ai.test.js` after the existing stay tests (after line 187):
 
 ```js
 test('applyItineraryUpdate saves confirmations with rooms', async () => {
@@ -385,6 +451,23 @@ test('applyItineraryUpdate saves confirmations with rooms', async () => {
   ])
 })
 
+test('applyItineraryUpdate rejects the legacy confirmationNumber key with a hint', async () => {
+  const input = {
+    hotelStays: [
+      {
+        hotelName: 'Canyon Lodge & Cabins',
+        hotelAddress: '',
+        checkInDay: '2026-07-18',
+        checkOutDay: '2026-07-19',
+        confirmationNumber: '20869678',
+      },
+    ],
+  }
+  const result = await applyItineraryUpdate(input, { storage, tripId: 'yellowstone' })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /replaced by confirmations/)
+})
+
 test('systemPrompt states the confirmation/room rules', () => {
   const prompt = systemPrompt({ name: 'X', summary: '', days: {} })
   assert.match(prompt, /one entry per confirmation number/)
@@ -395,7 +478,7 @@ test('systemPrompt states the confirmation/room rules', () => {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd server; npm test -- --test-name-pattern="confirmation"` — the apply test PASSES already (normalize does the work); the prompt test FAILS. Confirm exactly that split.
+Run: `cd server; npm test -- --test-name-pattern="confirmation"` — the two apply tests PASS already (normalizeHotelStays does the work); the prompt test FAILS. Confirm exactly that split.
 
 - [ ] **Step 3: Update the tool schema.** In `server/src/ai.js`, replace line 81 (`confirmationNumber: z.string().optional()...`) inside the `hotelStays` item object with:
 
@@ -423,10 +506,14 @@ Run: `cd server; npm test -- --test-name-pattern="confirmation"` — the apply t
           .describe(
             'All reservations for this stay — one entry per confirmation number, each with its rooms'
           ),
+        // Deprecation tombstone: kept in the schema so an old-shape tool call
+        // (imitated from replayed chat history) reaches normalizeHotelStays
+        // and gets a clear rejection back instead of zod silently stripping
+        // the unknown key and losing the number.
         confirmationNumber: z
           .string()
           .optional()
-          .describe('Legacy single confirmation number — prefer confirmations'),
+          .describe('DEPRECATED — do not use; put numbers in confirmations'),
 ```
 
 - [ ] **Step 4: Update the prompt hotel rules.** Replace the `Hotel stays:` block (`server/src/ai.js:373-378`) with:
@@ -462,10 +549,10 @@ git commit -m "Teach the travel agent multi-confirmation stays with rooms"
 - Modify: `client/src/components/HotelStaysModal.jsx`, `client/src/pages/TripPage.jsx:201`, `client/src/styles.css`
 
 **Interfaces:**
-- Consumes: `stayConfirmations`, `validateStay` from `client/src/lib/hotels.js` (Task 2).
-- Produces: `StayForm` submits stays shaped `{ hotelName, hotelAddress, checkInDay, checkOutDay, confirmations }` — the legacy `confirmationNumber` key no longer appears in saved payloads.
+- Consumes: `validateStay` from `client/src/lib/hotels.js` (Task 2); stays from the API always carry `confirmations` (Task 1's migration + normalization).
+- Produces: `StayForm` submits stays shaped `{ hotelName, hotelAddress, checkInDay, checkOutDay, confirmations }` — the legacy `confirmationNumber` key never appears in saved payloads.
 
-- [ ] **Step 1: Rework display components.** In `HotelStaysModal.jsx`, add `stayConfirmations` to the `../lib/hotels.js` import. Replace the `ConfirmationNumber` component with:
+- [ ] **Step 1: Rework display components.** In `HotelStaysModal.jsx`, replace the `ConfirmationNumber` component with:
 
 ```jsx
 // The whole pill is a button: clicking anywhere on it copies the number.
@@ -514,7 +601,7 @@ function RoomList({ rooms }) {
 // One pill per confirmation, its rooms listed beneath. showEmpty renders a
 // muted placeholder when nothing is on file (detail modal only).
 function ConfirmationList({ stay, showEmpty = false }) {
-  const confirmations = stayConfirmations(stay)
+  const confirmations = stay.confirmations ?? []
   if (!confirmations.length) {
     return showEmpty ? <p className="muted hotel-stay-no-conf">No confirmation # on file.</p> : null
   }
@@ -626,11 +713,10 @@ function ConfirmationsEditor({ confirmations, onChange }) {
 
 function StayForm({ initial, onSubmit, onCancel, hint = null }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...initial })
-  // Editing a legacy-shaped stay pre-populates via stayConfirmations.
   const [confirmations, setConfirmations] = useState(() =>
-    stayConfirmations(initial ?? {}).map((c) => ({
+    (initial?.confirmations ?? []).map((c) => ({
       confirmationNumber: c.confirmationNumber,
-      rooms: c.rooms.map((room) => ({ ...EMPTY_ROOM, ...room })),
+      rooms: (c.rooms ?? []).map((room) => ({ ...EMPTY_ROOM, ...room })),
     }))
   )
   const [error, setError] = useState('')
@@ -710,12 +796,12 @@ function StayForm({ initial, onSubmit, onCancel, hint = null }) {
 }
 ```
 
-Note `initial` may carry a legacy `confirmationNumber` — it's ignored by the spread into `EMPTY_FORM`-shaped state (only the four listed fields are submitted), and `stayConfirmations` folds it into the editor.
+Note `{ ...EMPTY_FORM, ...initial }` may copy `confirmations` into `form` — harmless, because `handleSubmit` builds the submitted stay from the four listed fields plus the editor state only.
 
-- [ ] **Step 3: Fix the linked-stay dedup key.** In `client/src/pages/TripPage.jsx:201`, replace the key line with (add `stayConfirmations` to the existing `../lib/hotels.js` import):
+- [ ] **Step 3: Fix the linked-stay dedup key.** In `client/src/pages/TripPage.jsx:201`, replace the key line with:
 
 ```js
-      const confs = stayConfirmations(stay).map((c) => c.confirmationNumber).join(',')
+      const confs = (stay.confirmations ?? []).map((c) => c.confirmationNumber).join(',')
       const key = `${stay.hotelName}|${stay.checkInDay}|${stay.checkOutDay}|${confs}`
 ```
 
@@ -775,15 +861,16 @@ git commit -m "Edit and display multiple confirmations with rooms per hotel stay
 
 - [ ] **Step 1: Write the script.** Follow the existing `hotel-check.mjs` structure (register/login via API, create trip, drive the UI with Playwright). Assertions, in order:
 
-1. Seed a trip via API with 2 days (`2026-07-18`, `2026-07-19`) and a **legacy-shaped** stay: `PUT { hotelStays: [{ hotelName: 'Canyon Lodge', hotelAddress: '41 Clover Ln', checkInDay: '2026-07-18', checkOutDay: '2026-07-19', confirmationNumber: 'LEGACY1' }] }` — server now stores it as `confirmations: [{ confirmationNumber: 'LEGACY1', rooms: [] }]`; assert that via GET.
-2. Open the trip page → "Hotel stays" link → the card shows one pill containing `LEGACY1`.
-3. Click Edit → the Confirmations editor shows one block pre-filled `LEGACY1` with no rooms.
-4. In the block, click "+ Add room", fill Room type `Western Cabin`, Guests `Jim & Kathy`; click "+ Add confirmation", fill the new block's number `SECOND2`, add a room `Standard Room` / `Jared`; Save.
-5. GET the trip via API: `hotelStays[0].confirmations` deep-equals two entries with those rooms.
-6. The list card shows two pills (`LEGACY1`, `SECOND2`) with room lines `Western Cabin — Jim & Kathy` and `Standard Room — Jared`.
-7. Click the day tile's check-in icon → detail modal shows both pills + rooms.
-8. Edit again, blank out `SECOND2`'s number, Save → error text matches `confirmation #` and nothing saved.
-9. Edit again, remove the `SECOND2` block entirely, Save → GET shows one confirmation remaining.
+1. **Migration check:** before starting the server, write a legacy-shaped trip file directly into the fresh `DATA_DIR` (a trip JSON with `hotelStays: [{ hotelName: 'Canyon Lodge', hotelAddress: '41 Clover Ln', checkInDay: '2026-07-18', checkOutDay: '2026-07-19', confirmationNumber: 'LEGACY1' }]`). Start the server, then read the file back from disk: it now has `confirmations: [{ confirmationNumber: 'LEGACY1', rooms: [] }]`, no `confirmationNumber` key, and a `backup-*` dir exists beside it.
+2. Register/login and create a fresh trip via API with 2 days (`2026-07-18`, `2026-07-19`) and a new-shape stay carrying one confirmation `FIRST1`; assert GET round-trips it.
+3. Open the trip page → "Hotel stays" link → the card shows one pill containing `FIRST1`.
+4. Click Edit → the Confirmations editor shows one block pre-filled `FIRST1` with no rooms.
+5. In the block, click "+ Add room", fill Room type `Western Cabin`, Guests `Jim & Kathy`; click "+ Add confirmation", fill the new block's number `SECOND2`, add a room `Standard Room` / `Jared`; Save.
+6. GET the trip via API: `hotelStays[0].confirmations` deep-equals two entries with those rooms.
+7. The list card shows two pills (`FIRST1`, `SECOND2`) with room lines `Western Cabin — Jim & Kathy` and `Standard Room — Jared`.
+8. Click the day tile's check-in icon → detail modal shows both pills + rooms.
+9. Edit again, blank out `SECOND2`'s number, Save → error text matches `confirmation #` and nothing saved.
+10. Edit again, remove the `SECOND2` block entirely, Save → GET shows one confirmation remaining.
 
 - [ ] **Step 2: Run it**
 
@@ -796,7 +883,7 @@ Expected output: all numbered checks print `ok`, exit 0.
 
 - [ ] **Step 3: Regression sweeps**
 
-Run the existing scratchpad suites against the same server: `node verify.mjs` (54), `node hotel-check.mjs` (29), `node link-check.mjs` (35), `node share-link-check.mjs` (16) — all must pass (hotel-check exercises the old single-conf flow, which now rides the legacy folding).
+Run the existing scratchpad suites against the same built client: `node verify.mjs` (54), `node hotel-check.mjs` (29), `node link-check.mjs` (35), `node share-link-check.mjs` (16) — all must pass. **Note:** any of these that seed stays with a legacy `confirmationNumber` via PUT will now get a 400 — update those seeds to the `confirmations` shape as part of this step (the scripts live in the scratchpad, not the repo).
 
 - [ ] **Step 4: Commit** (only if repo files changed in fixes)
 
@@ -814,7 +901,7 @@ Skip the commit if nothing needed fixing.
 - Create: `<scratchpad>/rooms-smoke.mjs`
 
 **Interfaces:**
-- Consumes: the real dev server on port 3197 (restart it first — no `--watch`), `chat-smoke.mjs` request pattern (`POST /api/trips/:id/chat` with `{ message, model }`, SSE response).
+- Consumes: the real dev server on port 3197 (restart it first — no `--watch`; the restart also migrates the local data dir), `chat-smoke.mjs` request pattern (`POST /api/trips/:id/chat` with `{ message, model }`, SSE response).
 
 - [ ] **Step 1: Write the script.** Model `anthropic/claude-sonnet-4-5` (the model from the original failure report). Three turns against a fresh trip with days `2026-07-18`/`2026-07-19`:
 
@@ -825,10 +912,10 @@ Skip the commit if nothing needed fixing.
 - [ ] **Step 2: Restart the dev server, run the smoke**
 
 ```powershell
-# restart the real server (port 3197) so it picks up Tasks 1+3, then:
+# restart the real server (port 3197) so it picks up Tasks 1+3 and migrates local data, then:
 node rooms-smoke.mjs
 ```
-Expected: `ROOMS SMOKE PASS`, exit 0.
+Expected: `ROOMS SMOKE PASS`, exit 0. Also spot-check that the local `server/data` trips got a `backup-*` dir and converted stays.
 
 - [ ] **Step 3: Full-suite final check + commit any fixes**
 

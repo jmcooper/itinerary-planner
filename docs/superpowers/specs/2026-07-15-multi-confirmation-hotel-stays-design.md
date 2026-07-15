@@ -1,7 +1,7 @@
 # Multi-Confirmation Hotel Stays — Design
 
 **Date:** 2026-07-15
-**Status:** Approved
+**Status:** Approved (revised: one-time startup migration instead of dual-shape support)
 
 ## Problem
 
@@ -46,35 +46,44 @@ Rules:
   to allow saving a stay without a confirmation number).
 - `confirmationNumber` is **required** (non-empty string) on every confirmation
   entry — it is the identity of the reservation.
-- `rooms` is optional/may be empty — a bare confirmation number is valid.
+- `rooms` is optional on input/may be empty — a bare confirmation number is
+  valid. Storage always writes `rooms` (possibly `[]`) for uniformity.
 - Room fields `roomType`, `guests`, `notes` are all **optional** strings;
   empty ones are omitted from storage (same junk-stripping style as
   `normalizeHotelStays` today).
 - `hotelName`, `checkInDay`, `checkOutDay` remain required; `hotelAddress`
   remains **optional** everywhere (server, UI, agent) — unchanged from today.
 
-### Backward compatibility — no on-disk migration
+### One-time startup migration — no dual-shape runtime code
 
-- `normalizeHotelStays` (`server/src/hotels.js`) accepts **both** shapes: the
-  legacy `confirmationNumber` string (converted to
-  `confirmations: [{ confirmationNumber, rooms: [] }]`) and the new
-  `confirmations` array. It always **emits** the new shape. Supplying both on
-  one stay is fine; legacy string is folded in only when `confirmations` is
-  absent.
-- Stored trips are converted lazily: the first save of a trip rewrites its
-  stays in the new shape. Reads never rewrite.
-- A client helper `stayConfirmations(stay)` (in `client/src/lib/hotels.js`)
-  returns the normalized confirmations list from either shape so all display
-  components tolerate old stored data.
+The existing `migrateDataDir` (`server/src/migrate.js`) already runs at every
+server startup and backs up originals before rewriting. It gains a hotel-stays
+converter:
+
+- For each stored trip with a `hotelStays` array, each stay with a legacy
+  `confirmationNumber` key is converted: non-empty string →
+  `confirmations: [{ confirmationNumber: <trimmed>, rooms: [] }]`; missing or
+  empty → `confirmations: []`. The legacy key is deleted. Stays already in the
+  new shape are untouched (idempotent — second run is a no-op).
+- After migration, **all runtime code handles only the new shape**:
+  - `normalizeHotelStays` validates only `confirmations`; a stay input that
+    still carries a `confirmationNumber` key is **rejected with an error**
+    ("confirmationNumber has been replaced by confirmations") rather than
+    silently dropped, so stale clients can't silently lose data.
+  - The client reads `stay.confirmations ?? []` directly — no dual-shape
+    helper.
 
 ## Server
 
+- `server/src/migrate.js` — new exported `migrateHotelStays(trip) → boolean`
+  (true if changed), wired into `migrateDataDir` beside `migrateTripDays` /
+  `normalizeTripShape`. Runs at startup and via `scripts/migrate-days.mjs`.
 - `server/src/hotels.js` — extend `normalizeHotelStays`: validate
   `confirmations` is an array of objects, each with a non-empty
   `confirmationNumber` string; `rooms` (if present) an array of objects with
   optional string `roomType` / `guests` / `notes`; trim everything, drop empty
-  optional fields, return `{ error }` on the first problem. Legacy
-  `confirmationNumber` folding as above.
+  optional fields, return `{ error }` on the first problem. A legacy
+  `confirmationNumber` key on any stay → `{ error }`.
 - REST PUT handler (`server/src/app.js`) needs no change beyond what
   `normalizeHotelStays` already provides (it delegates validation).
 - Linked-day plumbing (`server/src/links.js` `linkedHotelStays`) carries whole
@@ -91,9 +100,8 @@ Below the existing name/address/dates fields, a **Confirmations** section:
   inputs (all optional).
 - "+ Add room" inside each block; "+ Add confirmation" below the list; small
   remove (✕) buttons per room and per confirmation block.
-- Editing an existing stay (including one in the legacy shape, via
-  `stayConfirmations`) pre-populates the blocks; a legacy single
-  `confirmationNumber` appears as one block with no rooms.
+- Editing an existing stay pre-populates the blocks from
+  `stay.confirmations ?? []`.
 - Validation: any confirmation block with an empty number fails with a clear
   error; a stay with zero blocks is valid.
 - One Save submits the whole stay; trip-level full-replacement save flow
@@ -117,9 +125,12 @@ Below the existing name/address/dates fields, a **Confirmations** section:
 - **Tool schema**: replace the stay-level `confirmationNumber` field with an
   optional `confirmations` array mirroring the server validation
   (confirmationNumber required per entry; rooms optional with optional
-  roomType/guests/notes). Keep accepting the legacy `confirmationNumber`
-  field in the schema for one release so mid-flight chats don't break;
-  `normalizeHotelStays` folds it.
+  roomType/guests/notes). Keep `confirmationNumber` in the schema **only as a
+  deprecation tombstone** (described as "do not use") so that a model
+  imitating an old-shape tool call from replayed chat history reaches
+  `normalizeHotelStays` and gets its explicit rejection error back — a clear
+  retry signal — instead of zod silently stripping the unknown key and losing
+  the number.
 - **Full-replacement semantics unchanged**: `hotelStays` in the tool input
   replaces the whole list. "Add a room to my Canyon Lodge stay" means re-send
   every stay, with that stay's confirmations updated.
@@ -139,17 +150,19 @@ Below the existing name/address/dates fields, a **Confirmations** section:
 
 ## Testing
 
-- **Server unit** (`server/test/`): `normalizeHotelStays` — legacy string
-  folds to new shape; new shape round-trips; both-present prefers
-  `confirmations`; empty confirmation number rejected; room field trimming and
-  junk-stripping; rooms optional. Agent apply saves confirmations; PUT
-  round-trip via the API tests.
-- **Client unit**: `stayConfirmations` reads legacy and new shapes; form
-  validation (empty conf # in a block fails; zero blocks passes).
-- **Browser (Playwright, fake-agent server)**: create a stay with two
-  confirmations (one with two rooms, one with one), verify list + detail
-  rendering and per-pill copy; edit to add a room; edit a legacy-shaped stay
-  and confirm pre-population + save in new shape.
+- **Server unit** (`server/test/`): `migrateHotelStays` — legacy string
+  converts, empty/missing → `[]`, new shape untouched, idempotent, rides
+  `migrateDataDir` with backup. `normalizeHotelStays` — new shape
+  round-trips; legacy `confirmationNumber` key rejected; empty confirmation
+  number rejected; room field trimming and junk-stripping; rooms optional.
+  Agent apply saves confirmations; legacy-shaped tool input returns ok:false
+  with the replacement hint. PUT round-trip via the API tests.
+- **Client unit**: form validation (empty conf # in a block fails; zero
+  blocks passes).
+- **Browser (Playwright, fake-agent server)**: seed a legacy-shaped trip file
+  before server start and confirm the migration converted it; create a stay
+  with two confirmations (one with two rooms, one with one); verify list +
+  detail rendering and per-pill copy; edit to add a room.
 - **Live agent smoke** (real key): one turn adding a stay with two
   confirmation numbers and per-room details; a follow-up turn "add a third
   room under confirmation X" appends without disturbing the rest; a turn
@@ -159,4 +172,3 @@ Below the existing name/address/dates fields, a **Confirmations** section:
 
 - Per-room pricing/rate tracking.
 - Linking guests to user accounts.
-- On-disk data migration scripts.
