@@ -411,6 +411,32 @@ test('sanitizeChatMessages keeps only replayable message parts', () => {
   ])
 })
 
+test('sanitizeChatMessages coalesces adjacent streamed text chunks', () => {
+  const messages = [
+    {
+      role: 'model',
+      content: [
+        { text: 'Done' },
+        { text: '! I updated confirmation #' },
+        { text: '89903962) for you.\n\nAnything else?' },
+        { toolRequest: { name: 'updateItinerary', ref: '1', input: {} } },
+        { text: 'After the tool.' },
+      ],
+    },
+  ]
+  assert.deepEqual(sanitizeChatMessages(messages), [
+    {
+      role: 'model',
+      content: [
+        // One part per contiguous run — real line breaks inside the text stay.
+        { text: 'Done! I updated confirmation #89903962) for you.\n\nAnything else?' },
+        { toolRequest: { name: 'updateItinerary', ref: '1', input: {} } },
+        { text: 'After the tool.' },
+      ],
+    },
+  ])
+})
+
 test('compactHistoryForModel compacts older tool pairs but keeps the latest intact', () => {
   const bigDay = {
     date: '2026-07-01',

@@ -3,8 +3,26 @@ import { api } from '../api.js'
 import Markdown from './Markdown.jsx'
 import ModelPicker, { preferredModel } from './ModelPicker.jsx'
 
+// Streamed replies are stored as many small text chunks. Rendering each chunk
+// as its own markdown block inserts fake paragraph breaks at chunk boundaries
+// (and a chunk that happens to start with "1234)" turns into an ordered list),
+// so adjacent text parts are joined back into one string first — chunks are
+// deltas of one continuous reply, so plain concatenation is lossless.
+function coalesceTextParts(content) {
+  const merged = []
+  for (const part of content) {
+    const prev = merged[merged.length - 1]
+    if (typeof part.text === 'string' && prev && typeof prev.text === 'string') {
+      merged[merged.length - 1] = { text: prev.text + part.text }
+    } else {
+      merged.push(part)
+    }
+  }
+  return merged
+}
+
 function MessageParts({ message }) {
-  return message.content.map((part, i) => {
+  return coalesceTextParts(message.content).map((part, i) => {
     if (part.text) {
       return (
         <div key={i} className="markdown chat-md">

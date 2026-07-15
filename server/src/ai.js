@@ -246,19 +246,38 @@ export async function applyItineraryUpdate(input, { storage, tripId, username = 
 // current trip state, so it must not be persisted either.
 const REPLAYABLE_ROLES = new Set(['user', 'model', 'tool'])
 
+// Streaming yields a model reply as many small text chunks; storing each as
+// its own part makes the UI render fake paragraph breaks at chunk boundaries
+// (and lets a note or list-like fragment start mid-part). Adjacent text parts
+// are deltas of one continuous reply, so they merge losslessly.
+function coalesceTextParts(parts) {
+  const merged = []
+  for (const part of parts) {
+    const prev = merged[merged.length - 1]
+    if (typeof part.text === 'string' && prev && typeof prev.text === 'string') {
+      merged[merged.length - 1] = { text: prev.text + part.text }
+    } else {
+      merged.push(part)
+    }
+  }
+  return merged
+}
+
 export function sanitizeChatMessages(messages) {
   return (messages ?? [])
     .filter((message) => REPLAYABLE_ROLES.has(message.role))
     .map((message) => ({
       role: message.role,
-      content: (message.content ?? [])
-        .map((part) => {
-          if (typeof part.text === 'string' && part.text !== '') return { text: part.text }
-          if (part.toolRequest) return { toolRequest: part.toolRequest }
-          if (part.toolResponse) return { toolResponse: part.toolResponse }
-          return null
-        })
-        .filter(Boolean),
+      content: coalesceTextParts(
+        (message.content ?? [])
+          .map((part) => {
+            if (typeof part.text === 'string' && part.text !== '') return { text: part.text }
+            if (part.toolRequest) return { toolRequest: part.toolRequest }
+            if (part.toolResponse) return { toolResponse: part.toolResponse }
+            return null
+          })
+          .filter(Boolean)
+      ),
     }))
     .filter((message) => message.content.length > 0)
 }
