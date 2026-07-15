@@ -186,6 +186,60 @@ test('applyItineraryUpdate replaces the whole stay list; [] clears it', async ()
   assert.deepEqual(trip.hotelStays, [])
 })
 
+test('applyItineraryUpdate saves confirmations with rooms', async () => {
+  const input = {
+    hotelStays: [
+      {
+        hotelName: 'Canyon Lodge & Cabins',
+        hotelAddress: '41 Clover Ln, Yellowstone National Park, WY',
+        checkInDay: '2026-07-18',
+        checkOutDay: '2026-07-19',
+        confirmations: [
+          {
+            confirmationNumber: '20869678',
+            rooms: [{ roomType: 'Western Cabin', guests: 'Jim & Kathy' }],
+          },
+          { confirmationNumber: '20871144' },
+        ],
+      },
+    ],
+  }
+  const result = await applyItineraryUpdate(input, { storage, tripId: 'yellowstone' })
+  assert.equal(result.ok, true)
+  const trip = await storage.readTrip('yellowstone')
+  assert.deepEqual(trip.hotelStays[0].confirmations, [
+    {
+      confirmationNumber: '20869678',
+      rooms: [{ roomType: 'Western Cabin', guests: 'Jim & Kathy' }],
+    },
+    { confirmationNumber: '20871144', rooms: [] },
+  ])
+})
+
+test('applyItineraryUpdate rejects the legacy confirmationNumber key with a hint', async () => {
+  const input = {
+    hotelStays: [
+      {
+        hotelName: 'Canyon Lodge & Cabins',
+        hotelAddress: '',
+        checkInDay: '2026-07-18',
+        checkOutDay: '2026-07-19',
+        confirmationNumber: '20869678',
+      },
+    ],
+  }
+  const result = await applyItineraryUpdate(input, { storage, tripId: 'yellowstone' })
+  assert.equal(result.ok, false)
+  assert.match(result.error, /replaced by confirmations/)
+})
+
+test('systemPrompt states the confirmation/room rules', () => {
+  const prompt = systemPrompt({ name: 'X', summary: '', days: {} })
+  assert.match(prompt, /one entry per confirmation number/)
+  assert.match(prompt, /ask whether it goes under an existing one/)
+  assert.match(prompt, /never invent them/)
+})
+
 test('applyItineraryUpdate returns ok:false (not throw) for invalid stays', async () => {
   const before = await storage.readTrip('yellowstone')
   for (const hotelStays of [

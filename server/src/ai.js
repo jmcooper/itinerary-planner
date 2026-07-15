@@ -78,7 +78,37 @@ const itineraryUpdateSchema = z.object({
           .describe(
             'Check-out date, YYYY-MM-DD, after checkInDay. The stay covers checkInDay through the night before checkOutDay (check-out day exclusive).'
           ),
-        confirmationNumber: z.string().optional().describe('Booking confirmation number, if known'),
+        confirmations: z
+          .array(
+            z.object({
+              confirmationNumber: z.string().min(1).describe('Booking confirmation number'),
+              rooms: z
+                .array(
+                  z.object({
+                    roomType: z
+                      .string()
+                      .optional()
+                      .describe('Room type/description, e.g. "2 Queen Beds, Lake View"'),
+                    guests: z.string().optional().describe('Who is staying in this room'),
+                    notes: z.string().optional().describe('Anything else about this room'),
+                  })
+                )
+                .optional()
+                .describe('Rooms booked under this confirmation; omit when the user gave no room details'),
+            })
+          )
+          .optional()
+          .describe(
+            'All reservations for this stay — one entry per confirmation number, each with its rooms'
+          ),
+        // Deprecation tombstone: kept in the schema so an old-shape tool call
+        // (imitated from replayed chat history) reaches normalizeHotelStays
+        // and gets a clear rejection back instead of zod silently stripping
+        // the unknown key and losing the number.
+        confirmationNumber: z
+          .string()
+          .optional()
+          .describe('DEPRECATED — do not use; put numbers in confirmations'),
       })
     )
     .optional()
@@ -373,6 +403,9 @@ Rules:
 Hotel stays:
 - Record a hotel stay whenever the user mentions a hotel booking. hotelStays is a FULL replacement of the whole list — when adding or editing one stay, include every existing stay that should remain.
 - A stay covers checkInDay (inclusive) through checkOutDay (exclusive): the check-out day's night needs its own stay. The app warns on days not covered by any stay.
+- A stay can have multiple reservations: list them in confirmations, one entry per confirmation number, each with its rooms. When the user gives several confirmation numbers and room details in one message, save them all in a single tool call.
+- Adding a room to an existing stay means re-sending that stay with the room appended under its confirmation. Every room lives under a confirmation: if the user doesn't say which confirmation a new room belongs to, ask whether it goes under an existing one (name them) or a new one — and get the new number before saving.
+- Room details (roomType, guests, notes) are optional: save them only when the user states them; never invent them and don't press for them.
 - Never invent a check-in date, check-out date, or confirmation number. If any of them is missing from the user's request, ask for it before saving the stay. If the user says they don't have a confirmation number yet, save the stay without one.
 - When the user doesn't provide the hotel's address, fill it in yourself — never leave it empty. The address only feeds a Google Maps search, so it does not need to be a verified street address: give the street address if you know it, otherwise use "<hotel name>, <city, state/region>", which Maps resolves fine. State what you used in your reply so the user can correct it.
 - Set a day's hotelNotNeeded: true only when the user says no hotel is needed that night (e.g. a red-eye flight, staying with friends, the trip's final night at home).`
