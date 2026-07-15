@@ -1873,6 +1873,13 @@ label {
   font-size: 1.25rem;
 }
 
+.hotel-stay-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .hotel-stays-empty {
   margin: 0 0 1rem;
 }

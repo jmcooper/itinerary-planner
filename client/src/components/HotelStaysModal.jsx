@@ -409,19 +409,56 @@ export function HotelStaysModal({
   )
 }
 
-// Single stay opened from a day's check-in/check-out icon.
-export function HotelStayDetail({ stay, onClose }) {
+// Single stay opened from a day's check-in/check-out icon. Own stays can be
+// edited in place; linked stays are read-only (they belong to the linked trip).
+export function HotelStayDetail({ stay, canEdit = false, onSave, onClose }) {
+  const [editing, setEditing] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save(form) {
+    setError('')
+    try {
+      await onSave(form)
+      setEditing(false)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
   return (
     <Modal title={stay.hotelName} onClose={onClose}>
-      <div className="hotel-stay-info hotel-stay-detail">
-        <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
-        <ConfirmationList stay={stay} showEmpty />
-        {stay.hotelAddress ? (
-          <StayAddress address={stay.hotelAddress} />
-        ) : (
-          <p className="muted">No address on file.</p>
-        )}
-      </div>
+      {editing ? (
+        <>
+          <StayForm initial={stay} onSubmit={save} onCancel={() => setEditing(false)} />
+          {error && <p className="error">{error}</p>}
+        </>
+      ) : (
+        <div className="hotel-stay-info hotel-stay-detail">
+          <div className="hotel-stay-detail-head">
+            <div className="hotel-stay-dates">{formatStayRange(stay)}</div>
+            {canEdit && (
+              <button
+                type="button"
+                className="btn-icon"
+                title="Edit stay"
+                aria-label={`Edit stay at ${stay.hotelName}`}
+                onClick={() => setEditing(true)}
+              >
+                <PencilIcon />
+              </button>
+            )}
+          </div>
+          <ConfirmationList stay={stay} showEmpty />
+          {stay.hotelAddress ? (
+            <StayAddress address={stay.hotelAddress} />
+          ) : (
+            <p className="muted">No address on file.</p>
+          )}
+          {stay.linkedTripName && (
+            <p className="muted hotel-stay-source">From “{stay.linkedTripName}” via a linked day</p>
+          )}
+        </div>
+      )}
     </Modal>
   )
 }

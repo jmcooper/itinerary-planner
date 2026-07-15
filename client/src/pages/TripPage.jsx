@@ -21,7 +21,8 @@ export default function TripPage() {
   const [selectedDate, setSelectedDate] = useState(null)
   const [editingDates, setEditingDates] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // null | {type:'list'} | {type:'add', prefillCheckIn} | {type:'stay', stay}
+  // null | {type:'list'} | {type:'add', prefillCheckIn} | {type:'stay', stay, index}
+  // (index points into trip.hotelStays; -1 for read-only linked stays)
   const [hotelModal, setHotelModal] = useState(null)
   const [mobileView, setMobileView] = useState(initialPrompt ? 'chat' : 'itinerary')
   const [chatBusy, setChatBusy] = useState(Boolean(initialPrompt))
@@ -264,7 +265,7 @@ export default function TripPage() {
                         className={`day-nav-hotel-icon ${out ? 'hotel-icon-checkout' : 'hotel-icon-checkin'}`}
                         title={`${out ? 'Check out of' : 'Check in to'} ${stay.hotelName}`}
                         aria-label={`${out ? 'Check out of' : 'Check in to'} ${stay.hotelName}`}
-                        onClick={() => setHotelModal({ type: 'stay', stay })}
+                        onClick={() => setHotelModal({ type: 'stay', stay, index: hotelStays.indexOf(stay) })}
                       >
                         {out ? <CheckOutIcon size={17} /> : <CheckInIcon size={17} />}
                       </button>
@@ -288,7 +289,7 @@ export default function TripPage() {
             checkInStays={checkInsOn(allStays, selectedDate)}
             checkOutStays={checkOutsOn(allStays, selectedDate)}
             missingStay={isMissingStay(allStays, selectedDate)}
-            onOpenStay={(stay) => setHotelModal({ type: 'stay', stay })}
+            onOpenStay={(stay) => setHotelModal({ type: 'stay', stay, index: hotelStays.indexOf(stay) })}
             onAddStay={() => setHotelModal({ type: 'add', prefillCheckIn: selectedDate })}
             onSetHotelNotNeeded={(flag) => setHotelNotNeeded(selectedDate, flag)}
             onSaveDay={(patch) => saveDay(selectedDate, patch)}
@@ -364,7 +365,18 @@ export default function TripPage() {
         />
       )}
       {hotelModal?.type === 'stay' && (
-        <HotelStayDetail stay={hotelModal.stay} onClose={() => setHotelModal(null)} />
+        <HotelStayDetail
+          // Re-derive own stays from the trip so a save shows fresh data;
+          // linked stays (index -1) keep the snapshot and stay read-only.
+          stay={hotelModal.index >= 0 ? (hotelStays[hotelModal.index] ?? hotelModal.stay) : hotelModal.stay}
+          canEdit={canEdit && hotelModal.index >= 0}
+          onSave={(form) => {
+            const next = [...hotelStays]
+            next[hotelModal.index] = form
+            return saveTrip({ hotelStays: next })
+          }}
+          onClose={() => setHotelModal(null)}
+        />
       )}
 
       {showChat && (
