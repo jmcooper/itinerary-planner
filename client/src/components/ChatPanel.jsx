@@ -118,16 +118,22 @@ export default function ChatPanel({
     setPendingUser(text)
     setStreamText('')
     onBusyChange?.(true)
+    // The server can rename the trip's slug mid-conversation (first naming);
+    // the final trip event carries the new id, and the post-stream history
+    // reload must use it — the old id's files have moved.
+    let liveTripId = tripId
     try {
       await api.streamChat(tripId, text, {
         model,
         onEvent: (event, data) => {
           if (event === 'text') setStreamText((prev) => (prev ?? '') + data.text)
-          else if (event === 'trip') onTripChanged()
-          else if (event === 'error') setError(data.error)
+          else if (event === 'trip') {
+            if (data?.id) liveTripId = data.id
+            onTripChanged(data)
+          } else if (event === 'error') setError(data.error)
         },
       })
-      const chat = await api.getChat(tripId)
+      const chat = await api.getChat(liveTripId)
       setMessages(chat.messages)
     } catch (err) {
       setError(err.message)

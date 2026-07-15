@@ -56,7 +56,13 @@ export default function TripPage() {
   }
 
   // Called when the assistant writes to the trip mid-stream.
-  async function refreshTrip() {
+  async function refreshTrip(data) {
+    // The agent's first naming renames the trip's slug — follow the new URL
+    // (the id change re-runs the load effect against the new id).
+    if (data?.id && data.id !== id) {
+      navigate(`/trips/${data.id}`, { replace: true })
+      return
+    }
     try {
       const t = await api.getTrip(id)
       setTrip(t)

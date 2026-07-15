@@ -88,6 +88,15 @@ test('POST /api/trips/ai requires auth and a description', async () => {
   assert.equal((await alice.post('/api/trips/ai').send({})).status, 400)
 })
 
+// The final trip event carries the renamed id when the agent's first naming
+// re-slugged the trip.
+function finalTripId(sseText, fallback) {
+  const ids = [...sseText.matchAll(/event: trip\ndata: (\{[^\n]*\})/g)]
+    .map((m) => JSON.parse(m[1]).id)
+    .filter(Boolean)
+  return ids[ids.length - 1] ?? fallback
+}
+
 test('chat endpoints stream SSE and persist history', async () => {
   const created = await alice.post('/api/trips/ai').send({ description: 'Yellowstone' })
   const id = created.body.id
@@ -98,15 +107,38 @@ test('chat endpoints stream SSE and persist history', async () => {
   assert.match(res.text, /event: trip/)
   assert.match(res.text, /event: done/)
 
-  const hist = await alice.get(`/api/trips/${id}/chat`)
+  // The agent named the trip, so its provisional prompt-derived slug was
+  // replaced with a name-based one ("Yellowstone 2026" already has the year).
+  const newId = finalTripId(res.text, id)
+  assert.match(newId, /^yellowstone-2026-[0-9a-f]{6}$/)
+  assert.equal((await alice.get(`/api/trips/${id}`)).status, 404) // old id gone
+
+  const hist = await alice.get(`/api/trips/${newId}/chat`)
   assert.equal(hist.status, 200)
   assert.equal(hist.body.messages.length, 2)
   assert.equal(hist.body.messages[0].role, 'user')
   assert.equal(hist.body.messages[1].role, 'model')
 
-  const trip = await alice.get(`/api/trips/${id}`)
+  const trip = await alice.get(`/api/trips/${newId}`)
   assert.equal(trip.body.name, 'Yellowstone 2026')
   assert.equal(trip.body.summary, 'Two days in Yellowstone')
+  assert.equal(trip.body.provisionalSlug, undefined)
+
+  // The rename happens exactly once: another turn keeps the slug.
+  const again = await alice.post(`/api/trips/${newId}/chat`).send({ message: 'More' })
+  assert.equal(finalTripId(again.text, newId), newId)
+})
+
+test('manually renaming or re-slugging stops the agent rename', async () => {
+  const viaName = (await alice.post('/api/trips/ai').send({ description: 'Named by hand' })).body
+  await alice.put(`/api/trips/${viaName.id}`).send({ name: 'My Own Name' })
+  const res1 = await alice.post(`/api/trips/${viaName.id}/chat`).send({ message: 'Plan' })
+  assert.equal(finalTripId(res1.text, viaName.id), viaName.id) // no rename
+
+  const viaSlug = (await alice.post('/api/trips/ai').send({ description: 'Slugged by hand' })).body
+  await alice.put(`/api/trips/${viaSlug.id}`).send({ slug: 'my-chosen-url' })
+  const res2 = await alice.post('/api/trips/my-chosen-url/chat').send({ message: 'Plan' })
+  assert.equal(finalTripId(res2.text, 'my-chosen-url'), 'my-chosen-url')
 })
 
 test('chat rejects an empty message', async () => {
@@ -117,10 +149,11 @@ test('chat rejects an empty message', async () => {
 
 test('chat passes the requested model through and rejects unknown models', async () => {
   const created = await alice.post('/api/trips/ai').send({ description: 'Model test' })
-  const id = created.body.id
+  let id = created.body.id
   const ok = await alice.post(`/api/trips/${id}/chat`).send({ message: 'hi', model: 'fake/other' })
   assert.equal(ok.status, 200)
   assert.equal(agent.lastModel, 'fake/other')
+  id = finalTripId(ok.text, id) // first naming renames the slug
 
   // Defaults to the first available model when none is given
   await alice.post(`/api/trips/${id}/chat`).send({ message: 'hi again' })
@@ -211,8 +244,9 @@ test('a hung generation times out, frees the lock, and reports an error', async 
 
 test('deleting a trip removes its chat history file', async () => {
   const created = await alice.post('/api/trips/ai').send({ description: 'Short trip' })
-  const id = created.body.id
-  await alice.post(`/api/trips/${id}/chat`).send({ message: 'Plan it' })
+  let id = created.body.id
+  const res = await alice.post(`/api/trips/${id}/chat`).send({ message: 'Plan it' })
+  id = finalTripId(res.text, id) // first naming renames the slug
   assert.equal((await alice.get(`/api/trips/${id}/chat`)).body.messages.length, 2)
   assert.equal((await alice.delete(`/api/trips/${id}`)).status, 204)
   assert.equal((await alice.get(`/api/trips/${id}/chat`)).status, 404)

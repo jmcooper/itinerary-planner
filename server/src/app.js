@@ -9,6 +9,7 @@ import { normalizeHotelStays } from './hotels.js'
 import { normalizeFlightTrips } from './flights.js'
 import { canView, canEdit, isOwner } from './permissions.js'
 import { normalizeLinkedDay, validateLinkedDay, resolveTripDays, findLinkingTrips } from './links.js'
+import { agentSlugBasis } from './slug.js'
 
 // Slugs that would collide with app routes ("/trips/new") or API routes.
 const RESERVED_SLUGS = new Set(['new', 'ai'])
@@ -127,6 +128,9 @@ export function createApp(
         sharedWith: [],
         summary: '',
         aiCreated: true,
+        // The prompt-derived slug is temporary: the chat route renames the
+        // trip once the agent names it (destination + month + year).
+        provisionalSlug: true,
         days: {},
         createdAt: now,
         updatedAt: now,
@@ -219,6 +223,8 @@ export function createApp(
         createdAt: now,
         updatedAt: now,
       }
+      // The copy's slug comes from its "(copy)" name; never provisional.
+      delete copy.provisionalSlug
       await storage.writeTrip(copy)
       const images = await storage.readImages(trip.id)
       if (Object.keys(images).length > 0) await storage.writeImages(copy.id, images)
@@ -338,12 +344,17 @@ export function createApp(
           await storage.renameTrip(trip.id, slug)
           trip.id = slug
         }
+        // The user chose a URL — the agent must not rename it later.
+        delete trip.provisionalSlug
       }
 
       if ('name' in body) {
         if (typeof body.name !== 'string' || !body.name.trim())
           return res.status(400).json({ error: 'name must be a non-empty string' })
         trip.name = body.name.trim()
+        // The user named the trip themselves — the agent must not rename the
+        // URL from it later.
+        delete trip.provisionalSlug
       }
       if ('archived' in body) {
         if (!isOwner(trip, req.username))
@@ -595,7 +606,23 @@ export function createApp(
           agent.respond({ model, trip: resolvedTrip, messages, storage, emit, username: req.username }),
           timeout,
         ])
-        await storage.writeChat(trip.id, { messages: updated })
+        // An AI-created trip keeps its provisional prompt-derived slug only
+        // until the agent names it; then it's renamed once to a
+        // "<name>-<month>-<year>-<suffix>" slug. The final trip event carries
+        // the new id so the client can follow the URL.
+        let chatId = trip.id
+        const fresh = await storage.readTrip(trip.id)
+        if (fresh?.provisionalSlug && fresh.name !== trip.name) {
+          delete fresh.provisionalSlug
+          await storage.writeTrip(fresh)
+          const newId = storage.slugify(agentSlugBasis(fresh))
+          if (!RESERVED_SLUGS.has(newId) && !(await storage.readTrip(newId))) {
+            await storage.renameTrip(trip.id, newId)
+            chatId = newId
+          }
+        }
+        await storage.writeChat(chatId, { messages: updated })
+        if (chatId !== trip.id) emit('trip', { id: chatId })
         emit('done', {})
       } catch (err) {
         console.error(err)

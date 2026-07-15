@@ -89,3 +89,22 @@ test('only the owner can change the slug', async () => {
   const res = await bob.put(`/api/trips/${id}`).send({ slug: 'bobs-url' })
   assert.equal(res.status, 403)
 })
+
+// agentSlugBasis: the name plus month/year pieces the name doesn't already have.
+test('agentSlugBasis appends month and year from the earliest day', async () => {
+  const { agentSlugBasis } = await import('../src/slug.js')
+  assert.equal(
+    agentSlugBasis({ name: 'Yellowstone Weekend', days: { '2026-07-18': {}, '2026-07-17': {} } }),
+    'Yellowstone Weekend july 2026'
+  )
+})
+
+test('agentSlugBasis skips pieces the name already mentions', async () => {
+  const { agentSlugBasis } = await import('../src/slug.js')
+  assert.equal(agentSlugBasis({ name: 'Summer 2026 Trip', days: { '2026-07-16': {} } }), 'Summer 2026 Trip')
+  assert.equal(
+    agentSlugBasis({ name: 'July in Yellowstone', days: { '2026-07-16': {} } }),
+    'July in Yellowstone 2026'
+  )
+  assert.equal(agentSlugBasis({ name: 'Yellowstone', days: {} }), 'Yellowstone')
+})
