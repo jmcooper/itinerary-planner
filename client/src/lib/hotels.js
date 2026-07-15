@@ -31,6 +31,9 @@ export function validateStay(stay) {
   if (!DATE_RE.test(stay.checkInDay ?? '')) return 'Choose a check-in date.'
   if (!DATE_RE.test(stay.checkOutDay ?? '')) return 'Choose a check-out date.'
   if (stay.checkOutDay <= stay.checkInDay) return 'Check-out must be after check-in.'
+  for (const conf of stay.confirmations ?? []) {
+    if (!conf.confirmationNumber?.trim()) return 'Every confirmation needs a confirmation #.'
+  }
   return null
 }
 

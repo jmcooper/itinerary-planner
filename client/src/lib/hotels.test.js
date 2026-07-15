@@ -81,3 +81,16 @@ describe('mapsSearchUrl', () => {
     )
   })
 })
+
+describe('validateStay confirmations', () => {
+  const base = { hotelName: 'Inn', checkInDay: '2026-07-18', checkOutDay: '2026-07-19' }
+  it('rejects a blank confirmation #', () => {
+    expect(validateStay({ ...base, confirmations: [{ confirmationNumber: ' ' }] })).toMatch(
+      /confirmation #/
+    )
+  })
+  it('accepts zero confirmations and filled ones', () => {
+    expect(validateStay({ ...base, confirmations: [] })).toBeNull()
+    expect(validateStay({ ...base, confirmations: [{ confirmationNumber: 'A', rooms: [] }] })).toBeNull()
+  })
+})
