@@ -6,6 +6,7 @@ import path from 'node:path'
 import { createStorage } from '../src/storage.js'
 import {
   applyItineraryUpdate,
+  itineraryUpdateSchema,
   prettyModelLabel,
   isDatedSnapshot,
   sortModelsForDisplay,
@@ -141,6 +142,53 @@ test('applyItineraryUpdate keeps title and maps link when a day omits them', asy
   assert.equal(day.mapsUrl, before.days['2026-07-01'].mapsUrl) // carried forward
   assert.equal(day.items.length, 1) // items remain a full replacement
   assert.equal(day.items[0].title, 'Flight DL1048')
+})
+
+test('the tool schema accepts items that omit timeEnd, timeStart, or description', () => {
+  // Regression: a live model wrote "Sofia's plane arrives" with only a
+  // timeStart; the required-but-nullable timeEnd key failed Genkit schema
+  // validation and killed the whole turn.
+  const payload = {
+    days: [
+      {
+        date: '2026-07-16',
+        title: 'Arrivals',
+        waypoints: ['LAX', 'SLC'],
+        items: [
+          { timeStart: '19:15', timeEnd: '22:04', title: 'Flight DL1', description: 'x', travel: true },
+          { timeStart: '22:04', title: "Jordan's plane arrives", description: '' },
+          { title: 'Pack in the evening' },
+        ],
+      },
+    ],
+    flightTrips: [
+      {
+        confirmationNumber: '000001',
+        flights: [
+          { flightNumber: 'DL1', departureAirport: 'LAX', arrivalAirport: 'SLC', departureTime: '2026-07-16T19:15', arrivalTime: '2026-07-16T22:04' },
+        ],
+      },
+    ],
+  }
+  assert.doesNotThrow(() => itineraryUpdateSchema.parse(payload))
+})
+
+test('applyItineraryUpdate defaults omitted item times and description', async () => {
+  const result = await applyItineraryUpdate(
+    {
+      days: [
+        {
+          date: '2026-07-01',
+          items: [{ timeStart: '22:04', title: "Jordan's plane arrives" }],
+        },
+      ],
+    },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(result.ok, true)
+  const item = (await storage.readTrip('yellowstone')).days['2026-07-01'].items[0]
+  assert.equal(item.timeEnd, null)
+  assert.equal(item.description, '')
 })
 
 test('applyItineraryUpdate accepts a brand-new day without title or waypoints', async () => {

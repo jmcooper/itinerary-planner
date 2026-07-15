@@ -23,8 +23,11 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/
 
 // All fields are optional: the tool applies only what's provided, so the model
-// can make partial updates (summary-only, rename-only, remove-only).
-const itineraryUpdateSchema = z.object({
+// can make partial updates (summary-only, rename-only, remove-only). Exported
+// for tests: schema strictness has killed live turns before (a model omitting
+// an optional-in-spirit key fails Genkit validation and aborts the response),
+// so regressions are pinned by parsing real failing payloads.
+export const itineraryUpdateSchema = z.object({
   tripName: z.string().min(1).optional().describe('Set or update the trip name'),
   summary: z
     .string()
@@ -46,10 +49,21 @@ const itineraryUpdateSchema = z.object({
           ),
         items: z.array(
           z.object({
-            timeStart: z.string().nullable().describe('24h HH:MM or null'),
-            timeEnd: z.string().nullable().describe('24h HH:MM or null'),
+            timeStart: z
+              .string()
+              .nullable()
+              .optional()
+              .describe('24h HH:MM; omit or null for untimed items'),
+            timeEnd: z
+              .string()
+              .nullable()
+              .optional()
+              .describe('24h HH:MM; omit or null when there is no end time'),
             title: z.string(),
-            description: z.string().describe('Markdown details for this time block'),
+            description: z
+              .string()
+              .optional()
+              .describe('Markdown details for this time block; omit for none'),
             travel: z
               .boolean()
               .optional()
@@ -183,7 +197,7 @@ function applyDayReplacement(trip, day) {
       timeEnd: item.timeEnd ?? null,
       timeLabel: null,
       title: item.title,
-      description: item.description,
+      description: item.description ?? '',
       travel: item.travel === true,
       imageIds: imagesByTitle.get(item.title) ?? [],
     })),
