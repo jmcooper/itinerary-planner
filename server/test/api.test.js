@@ -654,6 +654,58 @@ test('copyLinks delete materializes linked days into the linking trips', async (
   assert.equal(copied.status, 200)
 })
 
+test('a linked day resolves with linkedFlightTrips from the target trip', async () => {
+  const target = (await alice.post('/api/trips').send({ name: 'Flight Target' })).body
+  await alice.put(`/api/trips/${target.id}`).send({
+    days: { '2026-07-17': { title: 'Fly', mapsUrl: '', items: [] } },
+    flightTrips: [
+      {
+        confirmationNumber: 'GK5XPL',
+        flights: [
+          { departureTime: '2026-07-17T15:00', arrivalTime: '2026-07-17T18:05', seats: [] },
+        ],
+      },
+    ],
+  })
+  const linker = (await alice.post('/api/trips').send({ name: 'Flight Linker' })).body
+  await alice.put(`/api/trips/${linker.id}`).send({
+    days: { '2026-07-17': { linkedTripId: target.id } },
+  })
+  const resolved = await alice.get(`/api/trips/${linker.id}`)
+  const day = resolved.body.days['2026-07-17']
+  assert.equal(day.linkedFlightTrips.length, 1)
+  assert.equal(day.linkedFlightTrips[0].confirmationNumber, 'GK5XPL')
+  assert.equal(day.linkedFlightTrips[0].linkedTripName, 'Flight Target')
+
+  // Round-tripping the resolved day back through PUT must not persist the
+  // linked flight trips (single source of truth).
+  await alice.put(`/api/trips/${linker.id}`).send({ days: resolved.body.days })
+  const again = await alice.get(`/api/trips/${linker.id}`)
+  assert.equal(again.body.days['2026-07-17'].linkedFlightTrips.length, 1) // still resolves
+  assert.equal(again.body.flightTrips ?? undefined, undefined) // never copied to the trip
+})
+
+test('copy-and-delete materializes flight trips touching linked days', async () => {
+  const target = (await alice.post('/api/trips').send({ name: 'Flight Del Target' })).body
+  await alice.put(`/api/trips/${target.id}`).send({
+    days: { '2026-07-18': { title: 'Fly home', mapsUrl: '', items: [] } },
+    flightTrips: [
+      { flights: [{ departureTime: '2026-07-18T19:30', arrivalTime: '2026-07-18T22:45', seats: [] }] },
+      { flights: [{ departureTime: '2026-09-01T08:00', arrivalTime: '2026-09-01T10:00', seats: [] }] },
+    ],
+  })
+  const linker = (await alice.post('/api/trips').send({ name: 'Flight Del Linker' })).body
+  await alice.put(`/api/trips/${linker.id}`).send({
+    days: { '2026-07-18': { linkedTripId: target.id } },
+  })
+  const del = await alice.delete(`/api/trips/${target.id}?copyLinks=1`)
+  assert.equal(del.status, 204)
+  const after = await alice.get(`/api/trips/${linker.id}`)
+  // Only the flight trip touching the linked date is materialized.
+  assert.equal(after.body.flightTrips.length, 1)
+  assert.equal(after.body.flightTrips[0].flights[0].departureTime, '2026-07-18T19:30')
+})
+
 test('unlinking stores a plain day again', async () => {
   const { b } = await makeLinkedPair()
   const resolved = (await alice.get(`/api/trips/${b.id}`)).body

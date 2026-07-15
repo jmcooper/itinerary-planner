@@ -443,6 +443,19 @@ export function createApp(
               )
               if (!exists) linker.hotelStays.push({ ...stay })
             }
+            // Flight coverage for this day came from this trip too — keep it.
+            for (const ft of trip.flightTrips ?? []) {
+              const touches = (ft.flights ?? []).some(
+                (f) =>
+                  f.departureTime?.slice(0, 10) === date || f.arrivalTime?.slice(0, 10) === date
+              )
+              if (!touches) continue
+              linker.flightTrips = linker.flightTrips ?? []
+              const exists = linker.flightTrips.some(
+                (t) => JSON.stringify(t.flights) === JSON.stringify(ft.flights)
+              )
+              if (!exists) linker.flightTrips.push(structuredClone(ft))
+            }
           }
           if (usedImageIds.length > 0) {
             const linkerImages = await storage.readImages(linker.id)

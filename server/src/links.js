@@ -4,6 +4,9 @@
 // the target day's content; writes to a linked day go to the target trip.
 import { canEdit } from './permissions.js'
 
+const flightTouchesDate = (flight, date) =>
+  flight.departureTime?.slice(0, 10) === date || flight.arrivalTime?.slice(0, 10) === date
+
 export function isLinkedDay(day) {
   return Boolean(day && typeof day === 'object' && day.linkedTripId)
 }
@@ -15,7 +18,7 @@ export function isLinkedDay(day) {
 export function normalizeLinkedDay(day) {
   if (isLinkedDay(day)) return { linkedTripId: String(day.linkedTripId) }
   if (day && typeof day === 'object') {
-    const { linkedTripName, linkedCanEdit, linkedBroken, linkedHotelStays, ...clean } = day
+    const { linkedTripName, linkedCanEdit, linkedBroken, linkedHotelStays, linkedFlightTrips, ...clean } = day
     return clean
   }
   return day
@@ -76,12 +79,18 @@ export async function resolveTripDays(trip, { storage, username }) {
     const linkedHotelStays = (target.hotelStays ?? [])
       .filter((stay) => stay.checkInDay <= date && date <= stay.checkOutDay)
       .map((stay) => ({ ...stay, linkedTripName: target.name }))
+    // Flight trips are trip-level too: the target's flight trips touching
+    // this date ride along so the linking trip shows the plane icons.
+    const linkedFlightTrips = (target.flightTrips ?? [])
+      .filter((ft) => (ft.flights ?? []).some((f) => flightTouchesDate(f, date)))
+      .map((ft) => ({ ...ft, linkedTripName: target.name }))
     days[date] = {
       ...targetDay,
       linkedTripId: day.linkedTripId,
       linkedTripName: target.name,
       linkedCanEdit: canEdit(target, username),
       ...(linkedHotelStays.length ? { linkedHotelStays } : {}),
+      ...(linkedFlightTrips.length ? { linkedFlightTrips } : {}),
     }
   }
   return { ...trip, days }
