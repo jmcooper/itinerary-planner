@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { createStorage } from './storage.js'
 import { createAuth, USERNAME_RE, MIN_PASSWORD_LENGTH } from './auth.js'
 import { normalizeHotelStays } from './hotels.js'
+import { normalizeFlightTrips } from './flights.js'
 import { canView, canEdit, isOwner } from './permissions.js'
 import { normalizeLinkedDay, validateLinkedDay, resolveTripDays, findLinkingTrips } from './links.js'
 
@@ -370,6 +371,11 @@ export function createApp(
         const { stays, error } = normalizeHotelStays(body.hotelStays)
         if (error) return res.status(400).json({ error })
         trip.hotelStays = stays
+      }
+      if ('flightTrips' in body) {
+        const { flightTrips, error } = normalizeFlightTrips(body.flightTrips)
+        if (error) return res.status(400).json({ error })
+        trip.flightTrips = flightTrips
       }
       trip.updatedAt = new Date().toISOString()
       await storage.writeTrip(trip)

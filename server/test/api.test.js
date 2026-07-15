@@ -353,6 +353,65 @@ test('duplicating a trip copies hotelStays', async () => {
   assert.equal(copy.body.hotelStays[0].hotelName, 'Copy Inn')
 })
 
+test('PUT /api/trips/:id round-trips flightTrips with normalization', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Flight Trip' })
+  const id = created.body.id
+  const res = await alice.put(`/api/trips/${id}`).send({
+    flightTrips: [
+      {
+        confirmationNumber: ' GK5XPL ',
+        flights: [
+          {
+            flightNumber: 'DL1048',
+            departureTime: '2026-07-17T15:00',
+            arrivalTime: '2026-07-17T18:05',
+            seats: [{ class: 'Comfort+', seatNumber: '14E' }],
+            junk: 'dropped',
+          },
+        ],
+      },
+    ],
+  })
+  assert.equal(res.status, 200)
+  assert.deepEqual(res.body.flightTrips, [
+    {
+      confirmationNumber: 'GK5XPL',
+      flights: [
+        {
+          departureTime: '2026-07-17T15:00',
+          arrivalTime: '2026-07-17T18:05',
+          seats: [{ seatNumber: '14E', class: 'Comfort+' }],
+          flightNumber: 'DL1048',
+        },
+      ],
+    },
+  ])
+})
+
+test('PUT /api/trips/:id rejects invalid flightTrips', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Bad Flights' })
+  const id = created.body.id
+  const bad = [
+    { flightTrips: 'nope' },
+    { flightTrips: [{ flights: [] }] },
+    { flightTrips: [{ flights: [{ departureTime: '2026-07-17T15:00', arrivalTime: '2026-07-17T14:00' }] }] },
+    { flightTrips: [{ flights: [{ departureTime: '2026-07-17T15:00', arrivalTime: '2026-07-17T18:05', seats: [{ class: 'First' }] }] }] },
+  ]
+  for (const body of bad) {
+    const res = await alice.put(`/api/trips/${id}`).send(body)
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(body)}`)
+  }
+})
+
+test('duplicating a trip copies flightTrips', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Flights To Copy' })
+  await alice.put(`/api/trips/${created.body.id}`).send({
+    flightTrips: [{ flights: [{ departureTime: '2026-09-01T08:00', arrivalTime: '2026-09-01T10:00' }] }],
+  })
+  const copy = await alice.post(`/api/trips/${created.body.id}/duplicate`)
+  assert.equal(copy.body.flightTrips.length, 1)
+})
+
 test('day-level hotelNotNeeded flag round-trips through days', async () => {
   const created = await alice.post('/api/trips').send({ name: 'No Hotel Day' })
   const id = created.body.id
