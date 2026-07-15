@@ -34,11 +34,15 @@ const itineraryUpdateSchema = z.object({
     .array(
       z.object({
         date: z.string().describe('The date this day covers, YYYY-MM-DD'),
-        title: z.string().describe('Short title for the day'),
+        title: z
+          .string()
+          .optional()
+          .describe('Short title for the day. Omit to keep the day’s existing title.'),
         waypoints: z
           .array(z.string())
+          .optional()
           .describe(
-            'Ordered place names for the day including where it starts and ends; used to build a Google Maps directions link'
+            'Ordered place names for the day including where it starts and ends; used to build a Google Maps directions link. Omit to keep the day’s existing route.'
           ),
         items: z.array(
           z.object({
@@ -154,15 +158,18 @@ const itineraryUpdateSchema = z.object({
     ),
 })
 
-// Replaces one day on a trip object (in place), carrying forward imageIds by
-// item title and the day's hotelNotNeeded flag unless explicitly set.
+// Replaces one day on a trip object (in place). Items are always a full
+// replacement; title, waypoints (→ mapsUrl), imageIds (by item title), and
+// hotelNotNeeded carry forward from the existing day when omitted, so a
+// partial call (e.g. the flights write-along adding one item) can't wipe them.
 function applyDayReplacement(trip, day) {
-  const existing = trip.days[day.date]?.items ?? []
+  const existingDay = trip.days[day.date]
+  const existing = existingDay?.items ?? []
   const imagesByTitle = new Map(existing.map((it) => [it.title, it.imageIds ?? []]))
-  const hotelNotNeeded = day.hotelNotNeeded ?? trip.days[day.date]?.hotelNotNeeded
+  const hotelNotNeeded = day.hotelNotNeeded ?? existingDay?.hotelNotNeeded
   trip.days[day.date] = {
-    title: day.title,
-    mapsUrl: buildMapsUrl(day.waypoints),
+    title: day.title ?? existingDay?.title ?? '',
+    mapsUrl: day.waypoints ? buildMapsUrl(day.waypoints) : (existingDay?.mapsUrl ?? ''),
     items: day.items.map((item) => ({
       timeStart: item.timeStart ?? null,
       timeEnd: item.timeEnd ?? null,
@@ -463,6 +470,7 @@ Rules:
 - Mark items that are pure travel between locations (driving, flying, transit) with travel: true, a short title like "Drive to Biscuit Basin", and accurate timeStart/timeEnd so the app can show the duration. Do not mark stops that merely include some walking.
 - Item descriptions are markdown; keep them informative but compact (why it's worth doing, practical tips, distances/durations).
 - Plan realistic timings, driving distances, and pacing. Respect the traveler's stated constraints.
+- Each day in days always carries its COMPLETE items list — the existing items you want kept plus anything new. Listing a day with only the new item deletes everything else on it. title and waypoints may be omitted to keep the day's existing title and route.
 - When replacing a day, carry forward the existing details you do not intend to change.
 - In your conversational reply, briefly summarize what you planned or changed — the app displays the full itinerary, so do not repeat it verbatim.
 - If the request is ambiguous or missing dates, ask before inventing details.
@@ -480,7 +488,7 @@ Hotel stays:
 Flights:
 - Record flight bookings in flightTrips — a FULL replacement of the whole list; when adding or editing one booking, include every existing flight trip that should remain — one entry per booking: a round trip or multi-city itinerary is ONE entry whose flights array holds each flight.
 - departureTime and arrivalTime are local wall-clock date+times (YYYY-MM-DDTHH:MM). Never invent them — ask when the traveler doesn't give them. Ignore timezone differences.
-- When adding or changing flights, in the SAME updateItinerary call also add or update an itinerary item on each flight's departure day: timeStart/timeEnd are the departure/arrival clock times, travel: true, a title naming the flight (e.g. "Flight DL1048 to Salt Lake City"), and the confirmation # in the description. Create the day if it doesn't exist yet.
+- When adding or changing flights, in the SAME updateItinerary call also add or update an itinerary item on each flight's departure day: timeStart/timeEnd are the departure/arrival clock times, travel: true, a title naming the flight (e.g. "Flight DL1048 to Salt Lake City"), and the confirmation # in the description. Create the day if it doesn't exist yet. Remember the days rule: send each touched day's COMPLETE items list (its existing items plus the flight item), not just the flight item.
 - Ask for the confirmation number, but save the flights without one if the traveler doesn't have it. Never invent flight numbers, ticket numbers, or seats — record them only when the traveler states them.`
 }
 

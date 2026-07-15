@@ -117,6 +117,51 @@ test('applyItineraryUpdate applies partial updates (summary only)', async () => 
   assert.deepEqual(after.days, before.days)
 })
 
+test('applyItineraryUpdate keeps title and maps link when a day omits them', async () => {
+  await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
+  const before = await storage.readTrip('yellowstone')
+
+  // The flights write-along failure mode: a day sent with only date + items.
+  const result = await applyItineraryUpdate(
+    {
+      days: [
+        {
+          date: '2026-07-01',
+          items: [
+            { timeStart: '15:00', timeEnd: '18:05', title: 'Flight DL1048', description: 'Conf GK5XPL', travel: true },
+          ],
+        },
+      ],
+    },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(result.ok, true)
+  const day = (await storage.readTrip('yellowstone')).days['2026-07-01']
+  assert.equal(day.title, before.days['2026-07-01'].title) // carried forward
+  assert.equal(day.mapsUrl, before.days['2026-07-01'].mapsUrl) // carried forward
+  assert.equal(day.items.length, 1) // items remain a full replacement
+  assert.equal(day.items[0].title, 'Flight DL1048')
+})
+
+test('applyItineraryUpdate accepts a brand-new day without title or waypoints', async () => {
+  const result = await applyItineraryUpdate(
+    {
+      days: [
+        {
+          date: '2026-07-09',
+          items: [{ timeStart: '09:00', timeEnd: '10:00', title: 'Fly', description: '', travel: true }],
+        },
+      ],
+    },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(result.ok, true)
+  const day = (await storage.readTrip('yellowstone')).days['2026-07-09']
+  assert.equal(day.title, '')
+  assert.equal(day.mapsUrl, '')
+  await applyItineraryUpdate({ removeDates: ['2026-07-09'] }, { storage, tripId: 'yellowstone' })
+})
+
 test('applyItineraryUpdate handles removeDates without days or summary', async () => {
   await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
   const before = await storage.readTrip('yellowstone')
@@ -745,6 +790,9 @@ test('systemPrompt embeds flight trips and the flight rules', () => {
   assert.match(prompt, /one entry per booking/)
   assert.match(prompt, /also add or update an itinerary item on each flight's departure day/)
   assert.match(prompt, /Never invent flight numbers, ticket numbers, or seats/)
+  // Partial-day guidance: complete items list, title/waypoints omittable
+  assert.match(prompt, /COMPLETE items list/)
+  assert.match(prompt, /title and waypoints may be omitted/)
   // Without flights the section reads (none)
   assert.match(systemPrompt({ name: 'X', summary: '', days: {} }), /Flight trips[^\n]*\(none\)/)
 })
