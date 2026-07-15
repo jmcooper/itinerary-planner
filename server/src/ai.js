@@ -8,6 +8,7 @@ import { anthropic } from '@genkit-ai/anthropic'
 import { googleAI } from '@genkit-ai/google-genai'
 import { buildMapsUrl } from './timeblocks.js'
 import { normalizeHotelStays } from './hotels.js'
+import { normalizeFlightTrips } from './flights.js'
 import { isLinkedDay } from './links.js'
 import { canEdit } from './permissions.js'
 
@@ -115,6 +116,42 @@ const itineraryUpdateSchema = z.object({
     .describe(
       'Full replacement of the trip’s ENTIRE hotel-stay list. When adding or editing one stay, include every existing stay that should remain.'
     ),
+  flightTrips: z
+    .array(
+      z.object({
+        confirmationNumber: z
+          .string()
+          .optional()
+          .describe('Booking confirmation number shared by every flight in this entry, if known'),
+        flights: z
+          .array(
+            z.object({
+              flightNumber: z.string().optional().describe('e.g. "DL1048"'),
+              departureTime: z
+                .string()
+                .describe('Local departure date+time, YYYY-MM-DDTHH:MM (ignore timezones)'),
+              arrivalTime: z
+                .string()
+                .describe('Local arrival date+time, YYYY-MM-DDTHH:MM, after departureTime'),
+              ticketNumber: z.string().optional().describe('Airline ticket number'),
+              seats: z
+                .array(
+                  z.object({
+                    seatNumber: z.string().min(1).describe('e.g. "14E"'),
+                    class: z.string().optional().describe('e.g. "Comfort+", "First", "Economy"'),
+                  })
+                )
+                .optional()
+                .describe('Seats on this flight; omit when the user gave none'),
+            })
+          )
+          .min(1),
+      })
+    )
+    .optional()
+    .describe(
+      "Full replacement of the trip's ENTIRE flight-trip list — one entry per booking/confirmation, whose flights array holds every flight on that booking (a round trip is ONE entry with two flights)"
+    ),
 })
 
 // Replaces one day on a trip object (in place), carrying forward imageIds by
@@ -153,14 +190,15 @@ export async function applyItineraryUpdate(input, { storage, tripId, username = 
     typeof input.summary !== 'string' &&
     !(input.days ?? []).length &&
     !(input.removeDates ?? []).length &&
-    input.hotelStays === undefined // [] is a valid "clear all stays"
+    input.hotelStays === undefined && // [] is a valid "clear all stays"
+    input.flightTrips === undefined // [] is a valid "clear all flight trips"
   ) {
     return {
       ok: false,
       savedDays: [],
       removedDays: [],
       error:
-        'No changes received — provide days (full replacement of each listed day), removeDates, tripName, summary, and/or hotelStays.',
+        'No changes received — provide days (full replacement of each listed day), removeDates, tripName, summary, hotelStays, and/or flightTrips.',
     }
   }
   let normalizedStays = null
@@ -168,6 +206,12 @@ export async function applyItineraryUpdate(input, { storage, tripId, username = 
     const { stays, error } = normalizeHotelStays(input.hotelStays)
     if (error) return { ok: false, savedDays: [], removedDays: [], error }
     normalizedStays = stays
+  }
+  let normalizedFlightTrips = null
+  if (input.flightTrips !== undefined) {
+    const { flightTrips, error } = normalizeFlightTrips(input.flightTrips)
+    if (error) return { ok: false, savedDays: [], removedDays: [], error }
+    normalizedFlightTrips = flightTrips
   }
   for (const day of input.days ?? []) {
     if (!DATE_RE.test(day.date)) throw new Error(`invalid day date: ${day.date} — use YYYY-MM-DD`)
@@ -231,10 +275,12 @@ export async function applyItineraryUpdate(input, { storage, tripId, username = 
     }
   }
   if (normalizedStays) trip.hotelStays = normalizedStays
+  if (normalizedFlightTrips) trip.flightTrips = normalizedFlightTrips
   trip.updatedAt = new Date().toISOString()
   await storage.writeTrip(trip)
   const result = { ok: true, savedDays, removedDays }
   if (normalizedStays) result.savedStays = normalizedStays.length
+  if (normalizedFlightTrips) result.savedFlightTrips = normalizedFlightTrips.length
   return result
 }
 
@@ -301,6 +347,7 @@ function describeUpdate(input = {}) {
   if (dates.length) actions.push(`replaced days: ${dates.join(', ')}`)
   if (input.removeDates?.length) actions.push(`removed days: ${input.removeDates.join(', ')}`)
   if (input.hotelStays) actions.push(`replaced hotel stays (${input.hotelStays.length})`)
+  if (input.flightTrips) actions.push(`replaced flight trips (${input.flightTrips.length})`)
   return actions.join('; ') || 'no changes'
 }
 
@@ -402,6 +449,7 @@ Current trip state:
 - Name: ${trip.name}
 - Summary: ${trip.summary || '(none)'}
 - Hotel stays (authoritative JSON): ${(trip.hotelStays ?? []).length ? JSON.stringify(trip.hotelStays) : '(none)'}
+- Flight trips (authoritative JSON): ${(trip.flightTrips ?? []).length ? JSON.stringify(trip.flightTrips) : '(none)'}
 - Current itinerary (authoritative JSON — older versions referenced in the chat history have had their details omitted):
 ${Object.keys(days).length ? JSON.stringify(days, null, 1) : '(no days yet)'}
 
@@ -427,7 +475,13 @@ Hotel stays:
 - Room details (roomType, guests, notes) are optional: save them only when the user states them; never invent them and don't press for them.
 - Never invent a check-in date, check-out date, or confirmation number. If any of them is missing from the user's request, ask for it before saving the stay. If the user says they don't have a confirmation number yet, save the stay without one.
 - When the user doesn't provide the hotel's address, fill it in yourself — never leave it empty. The address only feeds a Google Maps search, so it does not need to be a verified street address: give the street address if you know it, otherwise use "<hotel name>, <city, state/region>", which Maps resolves fine. State what you used in your reply so the user can correct it.
-- Set a day's hotelNotNeeded: true only when the user says no hotel is needed that night (e.g. a red-eye flight, staying with friends, the trip's final night at home).`
+- Set a day's hotelNotNeeded: true only when the user says no hotel is needed that night (e.g. a red-eye flight, staying with friends, the trip's final night at home).
+
+Flights:
+- Record flight bookings in flightTrips — a FULL replacement of the whole list; when adding or editing one booking, include every existing flight trip that should remain — one entry per booking: a round trip or multi-city itinerary is ONE entry whose flights array holds each flight.
+- departureTime and arrivalTime are local wall-clock date+times (YYYY-MM-DDTHH:MM). Never invent them — ask when the traveler doesn't give them. Ignore timezone differences.
+- When adding or changing flights, in the SAME updateItinerary call also add or update an itinerary item on each flight's departure day: timeStart/timeEnd are the departure/arrival clock times, travel: true, a title naming the flight (e.g. "Flight DL1048 to Salt Lake City"), and the confirmation # in the description. Create the day if it doesn't exist yet.
+- Ask for the confirmation number, but save the flights without one if the traveler doesn't have it. Never invent flight numbers, ticket numbers, or seats — record them only when the traveler states them.`
 }
 
 // Curated fallback used when live model discovery fails (e.g. transient
@@ -569,6 +623,7 @@ export function createAiAgent(env = process.env) {
         savedDays: z.array(z.string()),
         removedDays: z.array(z.string()),
         savedStays: z.number().optional(),
+        savedFlightTrips: z.number().optional(),
         error: z.string().optional(),
       }),
     },

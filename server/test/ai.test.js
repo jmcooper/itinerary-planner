@@ -695,3 +695,72 @@ test('sortModelsForDisplay groups by provider and orders newest to oldest', () =
   assert.equal(sorted[0].provider, 'Anthropic')
   assert.equal(sorted[5].provider, 'Google')
 })
+
+test('applyItineraryUpdate saves flight trips and reports savedFlightTrips', async () => {
+  const input = {
+    flightTrips: [
+      {
+        confirmationNumber: 'GK5XPL',
+        flights: [
+          {
+            flightNumber: 'DL1048',
+            departureTime: '2026-07-17T15:00',
+            arrivalTime: '2026-07-17T18:05',
+            seats: [{ class: 'Comfort+', seatNumber: '14E' }],
+          },
+        ],
+      },
+    ],
+  }
+  const result = await applyItineraryUpdate(input, { storage, tripId: 'yellowstone' })
+  assert.equal(result.ok, true)
+  assert.equal(result.savedFlightTrips, 1)
+  const trip = await storage.readTrip('yellowstone')
+  assert.equal(trip.flightTrips[0].flights[0].flightNumber, 'DL1048')
+})
+
+test('applyItineraryUpdate clears flight trips with [] and rejects bad input', async () => {
+  const cleared = await applyItineraryUpdate({ flightTrips: [] }, { storage, tripId: 'yellowstone' })
+  assert.equal(cleared.ok, true)
+  assert.equal(cleared.savedFlightTrips, 0)
+  const bad = await applyItineraryUpdate(
+    { flightTrips: [{ flights: [{ departureTime: '3pm', arrivalTime: '6pm' }] }] },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(bad.ok, false)
+  assert.match(bad.error, /YYYY-MM-DDTHH:MM/)
+})
+
+test('systemPrompt embeds flight trips and the flight rules', () => {
+  const trip = {
+    name: 'X',
+    summary: '',
+    days: {},
+    flightTrips: [
+      { confirmationNumber: 'GK5XPL', flights: [{ departureTime: '2026-07-17T15:00', arrivalTime: '2026-07-17T18:05', seats: [] }] },
+    ],
+  }
+  const prompt = systemPrompt(trip)
+  assert.match(prompt, /GK5XPL/)
+  assert.match(prompt, /one entry per booking/)
+  assert.match(prompt, /also add or update an itinerary item on each flight's departure day/)
+  assert.match(prompt, /Never invent flight numbers, ticket numbers, or seats/)
+  // Without flights the section reads (none)
+  assert.match(systemPrompt({ name: 'X', summary: '', days: {} }), /Flight trips[^\n]*\(none\)/)
+})
+
+test('compactHistoryForModel describes flight-trip updates', () => {
+  const messages = [
+    {
+      role: 'model',
+      content: [
+        { toolRequest: { name: 'updateItinerary', ref: '1', input: { flightTrips: [{}, {}] } } },
+      ],
+    },
+    { role: 'tool', content: [{ toolResponse: { name: 'updateItinerary', ref: '1', output: { ok: true } } }] },
+    { role: 'model', content: [{ toolRequest: { name: 'updateItinerary', ref: '2', input: {} } }] },
+    { role: 'tool', content: [{ toolResponse: { name: 'updateItinerary', ref: '2', output: { ok: true } } }] },
+  ]
+  const compacted = compactHistoryForModel(messages)
+  assert.match(compacted[0].content[0].text, /replaced flight trips \(2\)/)
+})
