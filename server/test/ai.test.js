@@ -918,8 +918,11 @@ test('systemPrompt embeds flight trips and the flight rules', () => {
   assert.match(prompt, /COMPLETE items list/)
   assert.match(prompt, /title and mapsUrl may be omitted/)
   // The agent builds the directions link itself, deduped and in visit order
-  assert.match(prompt, /provide mapsUrl: a Google Maps directions link/)
-  assert.match(prompt, /each place exactly once/)
+  assert.match(prompt, /Day maps links:/)
+  assert.match(prompt, /Accuracy is very important/)
+  assert.match(prompt, /Never put the same place twice in a row/)
+  assert.match(prompt, /Returning to a place LATER in the day/)
+  assert.match(prompt, /say exactly what differs in your reply/)
   // Airport codes
   assert.match(prompt, /IATA codes \(SLC, LAX\)/)
   // Bookings come from the traveler, never inferred from itinerary text
