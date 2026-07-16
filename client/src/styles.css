@@ -357,6 +357,11 @@ label {
 
 /* Day nav (left sidebar) */
 
+/* Mobile-only control; the small-screen block makes it visible. */
+.day-nav-expand {
+  display: none;
+}
+
 .day-nav ol {
   list-style: none;
   margin: 0;
@@ -917,15 +922,98 @@ label {
     grid-template-columns: 1fr;
   }
 
+  /* Grid tracks default to min-width auto, letting the day strip force the
+     page wider than the viewport — pin both columns to the container. */
+  .day-nav,
+  .day-panel {
+    min-width: 0;
+  }
+
+  /* One swipeable row of compact day chips. (No scroll-snap: it fights
+     scrollIntoView and leaves the selected chip partially clipped.) */
   .day-nav ol {
     position: static;
     flex-direction: row;
+    gap: 0.4rem;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
     padding-bottom: 0.4rem;
   }
 
+  .day-nav-li {
+    flex: 0 0 auto;
+  }
+
   .day-nav-item {
-    min-width: 8.5rem;
+    min-width: 5.4rem;
+    padding: 0.4rem 0.55rem;
+    grid-template-areas:
+      'num dot'
+      'date date';
+  }
+
+  .day-nav-num {
+    font-size: 0.7rem;
+  }
+
+  .day-nav-date {
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  /* On compact chips the centered-right icons would sit on the text, so
+     they become a little badge hanging off the chip's top-right corner.
+     The strip gets top padding so the badge isn't clipped by its scroll box. */
+  .day-nav ol {
+    padding-top: 0.9rem;
+  }
+
+  /* Extra specificity: the base .day-nav-hotel-icons rule is declared later
+     in this file and would otherwise win the tie. */
+  .day-nav-li .day-nav-hotel-icons {
+    top: -0.85rem;
+    right: 0.3rem;
+    transform: scale(0.8);
+    transform-origin: top right;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 0.06rem 0.3rem;
+  }
+
+  .day-nav.expanded ol {
+    row-gap: 1rem;
+  }
+
+  /* "All N days" toggle: expands the strip into a wrapped grid showing every
+     chip at once; picking a day collapses it again. */
+  .day-nav-expand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    align-self: flex-start;
+    margin: 0 0 0.35rem;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+
+  .day-nav-expand-chevron {
+    transition: transform 0.15s ease;
+  }
+
+  .day-nav-expand-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .day-nav.expanded ol {
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
 
   .import-grid {

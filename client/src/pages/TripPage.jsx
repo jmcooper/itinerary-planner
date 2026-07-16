@@ -31,6 +31,16 @@ export default function TripPage() {
   const [flightModal, setFlightModal] = useState(null)
   const [mobileView, setMobileView] = useState(initialPrompt ? 'chat' : 'itinerary')
   const [chatBusy, setChatBusy] = useState(Boolean(initialPrompt))
+  // Mobile day strip: false = one swipeable row, true = wrapped all-days grid.
+  const [daysExpanded, setDaysExpanded] = useState(false)
+
+  // Keep the selected chip visible in the mobile strip (harmless no-op when
+  // the desktop column is fully visible).
+  useEffect(() => {
+    document
+      .querySelector('.day-nav-item.selected')
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [selectedDate])
 
   useEffect(() => {
     api
@@ -256,7 +266,20 @@ export default function TripPage() {
     <p className="empty-note">This trip has no dates yet.</p>
   ) : (
     <div className="trip-body">
-      <aside className="day-nav" aria-label="Trip days">
+      <aside className={`day-nav${daysExpanded ? ' expanded' : ''}`} aria-label="Trip days">
+        {/* Mobile only (hidden on desktop): the day strip is one swipeable
+            row; this toggle wraps it into a grid showing every day at once. */}
+        <button
+          type="button"
+          className="day-nav-expand"
+          aria-expanded={daysExpanded}
+          onClick={() => setDaysExpanded((v) => !v)}
+        >
+          {daysExpanded ? 'Collapse days' : `All ${dates.length} days`}
+          <span className={`day-nav-expand-chevron${daysExpanded ? ' open' : ''}`} aria-hidden="true">
+            ▾
+          </span>
+        </button>
         <ol>
           {dates.map((date, i) => {
             const { weekday, label } = formatDay(date)
@@ -273,7 +296,10 @@ export default function TripPage() {
                 <button
                   type="button"
                   className={`day-nav-item${date === selectedDate ? ' selected' : ''}${missing ? ' missing-stay' : ''}`}
-                  onClick={() => setSelectedDate(date)}
+                  onClick={() => {
+                    setSelectedDate(date)
+                    setDaysExpanded(false) // picking a day collapses the mobile grid
+                  }}
                 >
                   <span className="day-nav-num">Day {i + 1}</span>
                   <span className="day-nav-date">
