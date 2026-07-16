@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import Markdown from './Markdown.jsx'
 import ModelPicker, { preferredModel } from './ModelPicker.jsx'
@@ -130,7 +130,10 @@ export default function ChatPanel({
           else if (event === 'trip') {
             if (data?.id) liveTripId = data.id
             onTripChanged(data)
-          } else if (event === 'error') setError(data.error)
+          } else if (event === 'error') {
+            setError(data.error)
+            setDraft(text) // put the message back so the user can retry or copy it
+          }
         },
       })
       const chat = await api.getChat(liveTripId)
@@ -174,9 +177,14 @@ export default function ChatPanel({
         ) : (
           messages.map((m, i) =>
             m.role === 'user' ? (
-              <div key={i} className="chat-user">
-                {m.content.map((p) => p.text ?? '').join('')}
-              </div>
+              <Fragment key={i}>
+                <div className={`chat-user${m.failed ? ' chat-user-failed' : ''}`}>
+                  {m.content.map((p) => p.text ?? '').join('')}
+                </div>
+                {m.failed && (
+                  <div className="chat-failed-note">Not sent — this request failed. Copy it or send it again.</div>
+                )}
+              </Fragment>
             ) : m.role === 'model' ? (
               <div key={i} className="chat-agent">
                 <MessageParts message={m} />

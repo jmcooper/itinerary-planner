@@ -592,7 +592,13 @@ export function createApp(
       let timer
       try {
         const chat = await storage.readChat(trip.id)
-        const messages = [...chat.messages, { role: 'user', content: [{ text: message }] }]
+        // Messages from previously failed turns stay in the file (the client
+        // shows them as "not sent") but are never replayed to the model — a
+        // retry would otherwise be answered twice.
+        const messages = [
+          ...chat.messages.filter((m) => m.failed !== true),
+          { role: 'user', content: [{ text: message }] },
+        ]
         const timeout = new Promise((_, reject) => {
           timer = setTimeout(
             () => reject(new Error('the assistant took too long to respond — please try again')),
@@ -626,6 +632,17 @@ export function createApp(
         emit('done', {})
       } catch (err) {
         console.error(err)
+        // The turn failed, but the traveler's message must not be lost:
+        // persist it flagged as failed so the client can show it (and the
+        // traveler can copy/retry) even after a reload.
+        try {
+          const chat = await storage.readChat(trip.id)
+          await storage.writeChat(trip.id, {
+            messages: [...chat.messages, { role: 'user', failed: true, content: [{ text: message }] }],
+          })
+        } catch {
+          // preserving the message is best-effort; the error event still goes out
+        }
         emit('error', { error: err.message ?? 'generation failed' })
       } finally {
         clearTimeout(timer)

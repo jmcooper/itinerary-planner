@@ -242,6 +242,45 @@ test('a hung generation times out, frees the lock, and reports an error', async 
   assert.equal(retry.status, 200)
 })
 
+test('a failed turn keeps the user message (flagged) without replaying it to the model', async () => {
+  const calls = []
+  let shouldFail = true
+  const flakyAgent = {
+    enabled: true,
+    listModels: async () => [{ id: 'fake/model', label: 'Fake Model' }],
+    async respond({ messages, emit }) {
+      calls.push(messages)
+      if (shouldFail) throw new Error('network blip')
+      emit('text', { text: 'ok' })
+      return [...messages, { role: 'model', content: [{ text: 'ok' }] }]
+    },
+  }
+  const flakyApp = createApp(dataDir, { agent: flakyAgent })
+  const fred = request.agent(flakyApp)
+  await fred.post('/api/auth/register').send({ username: 'fred', password: 'correct horse' })
+  const id = (await fred.post('/api/trips').send({ name: 'Flaky Trip' })).body.id
+
+  const res = await fred.post(`/api/trips/${id}/chat`).send({ message: 'Plan my trip please' })
+  assert.match(res.text, /event: error/)
+
+  // The message survives the failure, flagged so the client can show it.
+  const hist = await fred.get(`/api/trips/${id}/chat`)
+  assert.equal(hist.body.messages.length, 1)
+  assert.equal(hist.body.messages[0].failed, true)
+  assert.equal(hist.body.messages[0].content[0].text, 'Plan my trip please')
+
+  // The retry succeeds, and the model sees the request exactly once.
+  shouldFail = false
+  await fred.post(`/api/trips/${id}/chat`).send({ message: 'Plan my trip please' })
+  const lastCall = calls[calls.length - 1]
+  assert.equal(lastCall.filter((m) => m.role === 'user').length, 1)
+
+  // The successful turn supersedes the failed copy in stored history.
+  const after = await fred.get(`/api/trips/${id}/chat`)
+  assert.equal(after.body.messages.length, 2)
+  assert.ok(after.body.messages.every((m) => m.failed !== true))
+})
+
 test('deleting a trip removes its chat history file', async () => {
   const created = await alice.post('/api/trips/ai').send({ description: 'Short trip' })
   let id = created.body.id

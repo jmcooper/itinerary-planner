@@ -1381,6 +1381,17 @@ label {
   text-align: center;
 }
 
+.chat-user-failed {
+  opacity: 0.65;
+}
+
+.chat-failed-note {
+  align-self: flex-end;
+  color: var(--danger);
+  font-size: 0.75rem;
+  margin: -2px 0 6px;
+}
+
 .chat-user {
   align-self: flex-end;
   background: var(--primary);
