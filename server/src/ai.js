@@ -41,11 +41,17 @@ export const itineraryUpdateSchema = z.object({
           .string()
           .optional()
           .describe('Short title for the day. Omit to keep the day’s existing title.'),
+        mapsUrl: z
+          .string()
+          .optional()
+          .describe(
+            'Google Maps directions link for the day\'s route (https://www.google.com/maps/dir/Place+One/Place+Two/...): real place names in actual visiting order, each place once. Omit to keep the day\'s existing link; empty string to clear it.'
+          ),
         waypoints: z
           .array(z.string())
           .optional()
           .describe(
-            'Ordered place names for the day including where it starts and ends; used to build a Google Maps directions link. Omit to keep the day’s existing route.'
+            'DEPRECATED fallback — prefer mapsUrl. Ordered place names used to build a directions link only when mapsUrl is absent.'
           ),
         items: z.array(
           z.object({
@@ -191,7 +197,11 @@ function applyDayReplacement(trip, day) {
   const hotelNotNeeded = day.hotelNotNeeded ?? existingDay?.hotelNotNeeded
   trip.days[day.date] = {
     title: day.title ?? existingDay?.title ?? '',
-    mapsUrl: day.waypoints ? buildMapsUrl(day.waypoints) : (existingDay?.mapsUrl ?? ''),
+    // The agent supplies the finished directions link (it reasons about the
+    // route better than a mechanical waypoint join); waypoints remain a
+    // fallback for old-shape calls, and omitting both keeps the existing link.
+    mapsUrl:
+      day.mapsUrl ?? (day.waypoints ? buildMapsUrl(day.waypoints) : (existingDay?.mapsUrl ?? '')),
     items: day.items.map((item) => ({
       timeStart: item.timeStart ?? null,
       timeEnd: item.timeEnd ?? null,
@@ -228,6 +238,19 @@ export async function applyItineraryUpdate(input, { storage, tripId, username = 
       removedDays: [],
       error:
         'No changes received — provide days (full replacement of each listed day), removeDates, tripName, summary, hotelStays, and/or flightTrips.',
+    }
+  }
+  // A day's mapsUrl must be a Google Maps link (or empty to clear) — a soft
+  // failure so the model rebuilds the link instead of the turn dying.
+  const MAPS_URL_RE = /^https:\/\/((www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl)([/?]|$)/i
+  for (const day of input.days ?? []) {
+    if (day.mapsUrl && !MAPS_URL_RE.test(day.mapsUrl)) {
+      return {
+        ok: false,
+        savedDays: [],
+        removedDays: [],
+        error: `invalid mapsUrl for ${day.date} — use a https://www.google.com/maps/dir/... link (or "" to clear)`,
+      }
     }
   }
   let normalizedStays = null
@@ -488,11 +511,11 @@ Rules:
 - Tool calls must always contain the complete, real field values. The conversation may contain "[System note …]" messages summarizing updates you applied earlier — the app inserts those; neither you nor the traveler writes them. Never write bracketed notes yourself: text never saves anything. Nothing is saved unless the updateItinerary tool ran in the current turn and returned ok: true.
 - Extract the trip name and the dates for each day from the user's description when creating a new itinerary. Name new trips after the destination (e.g. "Yellowstone Weekend") unless the traveler gives a name — the name also becomes the trip's URL.
 - To delete days (e.g. "drop day 2", "cut the last day"), pass their dates in removeDates. Days may be non-contiguous — deleting a middle day leaves a gap.
-- For each day, provide ordered waypoints (real place names, including where the day starts and ends) so the app can build a Google Maps link.
+- For each day, provide mapsUrl: a Google Maps directions link (https://www.google.com/maps/dir/Place+One/Place+Two/...) tracing the day's route. Build it like a person planning the drive: real place names in actual visiting order, starting where the day starts and ending where it ends, each place exactly once — a "Drive to X" item is not its own stop (X is already the next stop), and repeated visits or adjacent duplicates collapse to one. Omit mapsUrl to keep the day's existing link.
 - Mark items that are pure travel between locations (driving, flying, transit) with travel: true, a short title like "Drive to Biscuit Basin", and accurate timeStart/timeEnd so the app can show the duration. Do not mark stops that merely include some walking.
 - Item descriptions are markdown; keep them informative but compact (why it's worth doing, practical tips, distances/durations).
 - Plan realistic timings, driving distances, and pacing. Respect the traveler's stated constraints.
-- Each day in days always carries its COMPLETE items list — the existing items you want kept plus anything new. Listing a day with only the new item deletes everything else on it. title and waypoints may be omitted to keep the day's existing title and route.
+- Each day in days always carries its COMPLETE items list — the existing items you want kept plus anything new. Listing a day with only the new item deletes everything else on it. title and mapsUrl may be omitted to keep the day's existing title and route.
 - When replacing a day, carry forward the existing details you do not intend to change.
 - In your conversational reply, briefly summarize what you planned or changed — the app displays the full itinerary, so do not repeat it verbatim.
 - If the request is ambiguous or missing dates, ask before inventing details.

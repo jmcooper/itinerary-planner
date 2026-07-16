@@ -191,6 +191,42 @@ test('applyItineraryUpdate defaults omitted item times and description', async (
   assert.equal(item.description, '')
 })
 
+test('applyItineraryUpdate prefers an agent-built mapsUrl over waypoints', async () => {
+  const url = 'https://www.google.com/maps/dir/Fountain+Paint+Pot/Midway+Geyser+Basin/Old+Faithful'
+  const result = await applyItineraryUpdate(
+    {
+      days: [
+        {
+          date: '2026-07-01',
+          mapsUrl: url,
+          waypoints: ['Ignored', 'Fallback'],
+          items: [{ title: 'Geysers' }],
+        },
+      ],
+    },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(result.ok, true)
+  const day = (await storage.readTrip('yellowstone')).days['2026-07-01']
+  assert.equal(day.mapsUrl, url)
+})
+
+test('applyItineraryUpdate rejects a non-Google mapsUrl and can clear with ""', async () => {
+  const bad = await applyItineraryUpdate(
+    { days: [{ date: '2026-07-01', mapsUrl: 'https://evil.example/maps', items: [] }] },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(bad.ok, false)
+  assert.match(bad.error, /mapsUrl/)
+
+  const cleared = await applyItineraryUpdate(
+    { days: [{ date: '2026-07-01', mapsUrl: '', items: [{ title: 'Geysers' }] }] },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(cleared.ok, true)
+  assert.equal((await storage.readTrip('yellowstone')).days['2026-07-01'].mapsUrl, '')
+})
+
 test('applyItineraryUpdate accepts a brand-new day without title or waypoints', async () => {
   const result = await applyItineraryUpdate(
     {
@@ -838,9 +874,12 @@ test('systemPrompt embeds flight trips and the flight rules', () => {
   assert.match(prompt, /one entry per booking/)
   assert.match(prompt, /also add or update an itinerary item on each flight's departure day/)
   assert.match(prompt, /Never invent flight numbers, ticket numbers, or seats/)
-  // Partial-day guidance: complete items list, title/waypoints omittable
+  // Partial-day guidance: complete items list, title/mapsUrl omittable
   assert.match(prompt, /COMPLETE items list/)
-  assert.match(prompt, /title and waypoints may be omitted/)
+  assert.match(prompt, /title and mapsUrl may be omitted/)
+  // The agent builds the directions link itself, deduped and in visit order
+  assert.match(prompt, /provide mapsUrl: a Google Maps directions link/)
+  assert.match(prompt, /each place exactly once/)
   // Airport codes
   assert.match(prompt, /IATA codes \(SLC, LAX\)/)
   // Bookings come from the traveler, never inferred from itinerary text
