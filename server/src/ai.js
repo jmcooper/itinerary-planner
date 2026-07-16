@@ -53,8 +53,9 @@ export const itineraryUpdateSchema = z.object({
           .describe(
             'DEPRECATED fallback — prefer mapsUrl. Ordered place names used to build a directions link only when mapsUrl is absent.'
           ),
-        items: z.array(
-          z.object({
+        items: z
+          .array(
+            z.object({
             timeStart: z
               .string()
               .nullable()
@@ -76,8 +77,12 @@ export const itineraryUpdateSchema = z.object({
               .describe(
                 'True when this item is pure travel time between locations (driving, flying, transit). Travel items render as a compact connector between events.'
               ),
-          })
-        ),
+            })
+          )
+          .optional()
+          .describe(
+            "Full replacement of the day's items — include every item to keep. Omit the field entirely to leave the day's items unchanged (e.g. a title- or mapsUrl-only update)."
+          ),
         hotelNotNeeded: z
           .boolean()
           .optional()
@@ -186,10 +191,11 @@ export const itineraryUpdateSchema = z.object({
     ),
 })
 
-// Replaces one day on a trip object (in place). Items are always a full
-// replacement; title, waypoints (→ mapsUrl), imageIds (by item title), and
-// hotelNotNeeded carry forward from the existing day when omitted, so a
-// partial call (e.g. the flights write-along adding one item) can't wipe them.
+// Replaces one day on a trip object (in place). Items sent are a full
+// replacement, but an OMITTED items key keeps the existing items untouched
+// (so a title- or mapsUrl-only update can't wipe a day); title, mapsUrl,
+// imageIds (by item title), and hotelNotNeeded also carry forward when
+// omitted.
 function applyDayReplacement(trip, day) {
   const existingDay = trip.days[day.date]
   const existing = existingDay?.items ?? []
@@ -202,15 +208,19 @@ function applyDayReplacement(trip, day) {
     // fallback for old-shape calls, and omitting both keeps the existing link.
     mapsUrl:
       day.mapsUrl ?? (day.waypoints ? buildMapsUrl(day.waypoints) : (existingDay?.mapsUrl ?? '')),
-    items: day.items.map((item) => ({
-      timeStart: item.timeStart ?? null,
-      timeEnd: item.timeEnd ?? null,
-      timeLabel: null,
-      title: item.title,
-      description: item.description ?? '',
-      travel: item.travel === true,
-      imageIds: imagesByTitle.get(item.title) ?? [],
-    })),
+    // Existing items pass through untouched (not remapped — that would drop
+    // legacy fields like timeLabel).
+    items: day.items
+      ? day.items.map((item) => ({
+          timeStart: item.timeStart ?? null,
+          timeEnd: item.timeEnd ?? null,
+          timeLabel: null,
+          title: item.title,
+          description: item.description ?? '',
+          travel: item.travel === true,
+          imageIds: imagesByTitle.get(item.title) ?? [],
+        }))
+      : existing,
     ...(hotelNotNeeded ? { hotelNotNeeded: true } : {}),
   }
 }
@@ -267,7 +277,7 @@ export async function applyItineraryUpdate(input, { storage, tripId, username = 
   }
   for (const day of input.days ?? []) {
     if (!DATE_RE.test(day.date)) throw new Error(`invalid day date: ${day.date} — use YYYY-MM-DD`)
-    for (const item of day.items) {
+    for (const item of day.items ?? []) {
       for (const key of ['timeStart', 'timeEnd']) {
         if (item[key] != null && !TIME_RE.test(item[key]))
           throw new Error(`invalid ${key} "${item[key]}" — use 24h HH:MM or null`)
@@ -515,7 +525,7 @@ Rules:
 - Mark items that are pure travel between locations (driving, flying, transit) with travel: true, a short title like "Drive to Biscuit Basin", and accurate timeStart/timeEnd so the app can show the duration. Do not mark stops that merely include some walking.
 - Item descriptions are markdown; keep them informative but compact (why it's worth doing, practical tips, distances/durations).
 - Plan realistic timings, driving distances, and pacing. Respect the traveler's stated constraints.
-- Each day in days always carries its COMPLETE items list — the existing items you want kept plus anything new. Listing a day with only the new item deletes everything else on it. title and mapsUrl may be omitted to keep the day's existing title and route.
+- When changing a day's items, send that day's COMPLETE items list — the existing items you want kept plus anything new; listing only the new item deletes everything else on it. When you are NOT changing items (e.g. a title- or mapsUrl-only update), omit the items field entirely to leave them untouched. title and mapsUrl may be omitted to keep the day's existing title and route.
 - When replacing a day, carry forward the existing details you do not intend to change.
 - In your conversational reply, briefly summarize what you planned or changed — the app displays the full itinerary, so do not repeat it verbatim.
 - If the request is ambiguous or missing dates, ask before inventing details.

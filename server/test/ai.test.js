@@ -191,6 +191,46 @@ test('applyItineraryUpdate defaults omitted item times and description', async (
   assert.equal(item.description, '')
 })
 
+test('the tool schema accepts a mapsUrl-only day update', () => {
+  // Regression: "regenerate the map link" produced a day with only date +
+  // mapsUrl, and the then-required items key failed Genkit validation.
+  const payload = {
+    days: [
+      {
+        date: '2026-07-18',
+        mapsUrl:
+          'https://www.google.com/maps/dir/?api=1&origin=Holiday+Inn&destination=Canyon+Lodge&waypoints=Fountain+Paint+Pot%7CMidway+Geyser+Basin',
+      },
+    ],
+  }
+  assert.doesNotThrow(() => itineraryUpdateSchema.parse(payload))
+})
+
+test('applyItineraryUpdate with omitted items keeps them untouched, [] clears', async () => {
+  await applyItineraryUpdate(baseInput(), { storage, tripId: 'yellowstone' })
+  const before = (await storage.readTrip('yellowstone')).days['2026-07-01']
+  assert.ok(before.items.length > 0)
+
+  const url = 'https://www.google.com/maps/dir/Fountain+Paint+Pot/Old+Faithful'
+  const linkOnly = await applyItineraryUpdate(
+    { days: [{ date: '2026-07-01', mapsUrl: url }] },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(linkOnly.ok, true)
+  const after = (await storage.readTrip('yellowstone')).days['2026-07-01']
+  assert.equal(after.mapsUrl, url)
+  // Items pass through verbatim — same objects, images and all.
+  assert.deepEqual(after.items, before.items)
+  assert.equal(after.title, before.title)
+
+  const cleared = await applyItineraryUpdate(
+    { days: [{ date: '2026-07-01', items: [] }] },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(cleared.ok, true)
+  assert.deepEqual((await storage.readTrip('yellowstone')).days['2026-07-01'].items, [])
+})
+
 test('applyItineraryUpdate prefers an agent-built mapsUrl over waypoints', async () => {
   const url = 'https://www.google.com/maps/dir/Fountain+Paint+Pot/Midway+Geyser+Basin/Old+Faithful'
   const result = await applyItineraryUpdate(
