@@ -578,34 +578,20 @@ label {
   border-top: 1px solid var(--line);
 }
 
-/* Per-item navigation link: the row line is a button, so the pin floats
-   beside the caret; the row reserves space so long titles don't run under it. */
-.itin-row {
-  position: relative;
-}
-
+/* Per-item navigation pin: inline right after the item text, before the
+   caret (which stays the right-most element). */
 .itin-map-link {
-  position: absolute;
-  top: 0.7rem; /* aligned to the row line's first text line, not the li center */
-  right: 0.75rem;
   display: inline-flex;
-  padding: 0.3rem;
+  vertical-align: -2px;
+  margin-left: 0.4rem;
+  padding: 0.1rem;
   color: var(--ink-faint);
-  z-index: 1;
+  cursor: pointer;
 }
 
-.itin-row.travel .itin-map-link {
-  top: 0.15rem;
-}
-
-.itin-map-link:hover {
+.itin-map-link:hover,
+.itin-map-link:focus-visible {
   color: var(--primary);
-}
-
-/* Reserve the right edge for the pin so the caret (inside the button) and
-   long titles stay clear of it — consistently caret first, pin outermost. */
-.itin-row.has-map .itin-row-line {
-  padding-right: 2.5rem;
 }
 
 .itin-row-line {
@@ -652,26 +638,30 @@ label {
   background: #fbfaf7;
 }
 
+/* Block flow so long description text wraps around the floated thumbnail
+   stack instead of leaving a dead column beneath it. */
 .itin-details-body {
-  display: flex;
-  gap: 1.5rem;
-  align-items: flex-start;
+  display: block;
 }
 
-.itin-details-main {
-  flex: 2 1 0;
-  min-width: 0;
+.itin-details-body::after {
+  /* Contain the float when the image stack is taller than the text. */
+  content: '';
+  display: block;
+  clear: both;
 }
 
 /* Item images */
 
 .itin-images {
-  flex: 1 1 0;
+  float: right;
+  width: 33%;
   max-width: 33%;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   padding-top: 0.75rem;
+  margin: 0 0 0.75rem 1.25rem;
 }
 
 .img-thumb {
@@ -1058,15 +1048,21 @@ label {
   }
 
   /* Images drop below the details text on small screens */
+  /* Small screens: no float — stack text, actions, then images below,
+     matching the pre-float order (images last). */
   .itin-details-body {
+    display: flex;
     flex-direction: column;
     gap: 0.8rem;
   }
 
   .itin-images {
+    order: 5;
+    float: none;
     max-width: 100%;
     width: 100%;
     align-items: stretch;
+    margin: 0;
   }
 
   .img-thumb img {

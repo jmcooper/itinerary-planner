@@ -9,24 +9,34 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }
   const [editing, setEditing] = useState(false)
   const travelDuration = item.travel ? formatDuration(item) : ''
 
-  return (
-    <li
-      className={`itin-row${item.travel ? ' travel' : ''}${expanded ? ' expanded' : ''}${item.mapsUrl ? ' has-map' : ''}`}
+  // Inline right after the item text, before the caret. The row line is a
+  // <button>, which can't contain an <a>, so this is a role=link span that
+  // opens navigation itself (and never toggles the row).
+  const openMap = (e) => {
+    e.stopPropagation()
+    window.open(item.mapsUrl, '_blank', 'noopener')
+  }
+  const mapPin = item.mapsUrl ? (
+    <span
+      className="itin-map-link"
+      role="link"
+      tabIndex={0}
+      title={`Navigate to ${item.title}`}
+      aria-label={`Navigate to ${item.title}`}
+      onClick={openMap}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          openMap(e)
+        }
+      }}
     >
-      {/* The row line is a button, so the navigation link sits beside it
-          (absolutely positioned next to the caret) rather than inside. */}
-      {item.mapsUrl && (
-        <a
-          className="itin-map-link"
-          href={item.mapsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={`Navigate to ${item.title}`}
-          aria-label={`Navigate to ${item.title}`}
-        >
-          <MapPinIcon size={15} />
-        </a>
-      )}
+      <MapPinIcon size={15} />
+    </span>
+  ) : null
+
+  return (
+    <li className={`itin-row${item.travel ? ' travel' : ''}${expanded ? ' expanded' : ''}`}>
       <button
         type="button"
         className="itin-row-line"
@@ -37,11 +47,15 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }
           <span className="itin-travel-label">
             {item.title}
             {travelDuration && <span className="itin-travel-duration"> · {travelDuration}</span>}
+            {mapPin}
           </span>
         ) : (
           <>
             <span className="itin-time">{formatTimeBlock(item)}</span>
-            <span className="itin-plan">{item.title}</span>
+            <span className="itin-plan">
+              {item.title}
+              {mapPin}
+            </span>
           </>
         )}
         <span className="itin-caret" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
@@ -59,38 +73,38 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }
             />
           ) : (
             <div className="itin-details-body">
-              <div className="itin-details-main">
-                {item.description ? (
-                  <div className="markdown">
-                    <Markdown>{item.description}</Markdown>
-                  </div>
-                ) : (
-                  <p className="muted">No details for this item yet.</p>
-                )}
-                {canEdit && (
-                  <div className="itin-item-actions">
-                    <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(true)}>
-                      Edit
-                    </button>
-                    {onDelete && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-small btn-danger"
-                        onClick={onDelete}
-                        title="Delete this item"
-                      >
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* Images render first and float right on desktop so long
+                  description text wraps under the thumbnail stack. */}
               <ItemImages
                 tripId={tripId}
                 imageIds={item.imageIds ?? []}
                 canEdit={canEdit}
                 onChangeIds={(imageIds) => onSave({ ...item, imageIds })}
               />
+              {item.description ? (
+                <div className="markdown">
+                  <Markdown>{item.description}</Markdown>
+                </div>
+              ) : (
+                <p className="muted">No details for this item yet.</p>
+              )}
+              {canEdit && (
+                <div className="itin-item-actions">
+                  <button type="button" className="btn btn-ghost btn-small" onClick={() => setEditing(true)}>
+                    Edit
+                  </button>
+                  {onDelete && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-small btn-danger"
+                      onClick={onDelete}
+                      title="Delete this item"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
