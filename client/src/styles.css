@@ -1020,8 +1020,10 @@ label {
     grid-template-columns: 1fr;
   }
 
+  /* The time column sizes to its content — a fixed narrow track let long
+     ranges ("10:20 – 11:10 am") paint over the title. */
   .itin-row-line {
-    grid-template-columns: 6.5rem 1fr auto;
+    grid-template-columns: minmax(4.5rem, max-content) 1fr auto;
     gap: 0.6rem;
   }
 
