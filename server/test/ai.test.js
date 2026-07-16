@@ -843,6 +843,8 @@ test('systemPrompt embeds flight trips and the flight rules', () => {
   assert.match(prompt, /title and waypoints may be omitted/)
   // Airport codes
   assert.match(prompt, /IATA codes \(SLC, LAX\)/)
+  // Bookings come from the traveler, never inferred from itinerary text
+  assert.match(prompt, /NEVER invent an entry from itinerary items/)
   // Without flights the section reads (none)
   assert.match(systemPrompt({ name: 'X', summary: '', days: {} }), /Flight trips[^\n]*\(none\)/)
 })
