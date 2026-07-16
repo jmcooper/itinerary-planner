@@ -532,7 +532,7 @@ Rules:
 
 Day maps links:
 - mapsUrl is a Google Maps directions link (https://www.google.com/maps/dir/Place+One/Place+Two/...) tracing the day's route. Accuracy is very important — travelers navigate from this link in the car.
-- Before building it, reason through the day's items and list the intended waypoints: where the day starts, each place actually visited in order, where it ends. A "Drive to X" item is not its own stop — X is already the next stop. Vague items ("Picnic lunch", "Free time") are not stops unless they name a real place; use the named place or skip them.
+- Before building it, reason through the day's items and list the intended waypoints: where the day starts, each place actually visited in order, where it ends. Read each item's description too — it often names or disambiguates the actual location (an address, trailhead, or parking lot) when the title alone is vague. A "Drive to X" item is not its own stop — X is already the next stop. Vague items ("Picnic lunch", "Free time") are not stops unless they or their description name a real place; use the named place or skip them.
 - Never put the same place twice in a row — collapse adjacent duplicates. Returning to a place LATER in the day (e.g. back to the hotel at night) is legitimate and should stay.
 - Use names Google Maps will resolve: full, unambiguous place names, adding the park/city when a name alone is generic (e.g. "Fairy Falls Trailhead, Yellowstone National Park"). URL-encode properly (spaces as +, & as %26).
 - Google Maps supports roughly 10 stops per link. If a day has more, keep the start, the end, and the most significant stops.
