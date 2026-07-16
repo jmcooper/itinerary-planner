@@ -77,6 +77,12 @@ export const itineraryUpdateSchema = z.object({
               .describe(
                 'True when this item is pure travel time between locations (driving, flying, transit). Travel items render as a compact connector between events.'
               ),
+            mapsUrl: z
+              .string()
+              .optional()
+              .describe(
+                "Google Maps navigation link to this item's own location (https://www.google.com/maps/dir/?api=1&destination=Place+Name). Omit for items without a specific place; empty string to clear."
+              ),
             })
           )
           .optional()
@@ -200,6 +206,7 @@ function applyDayReplacement(trip, day) {
   const existingDay = trip.days[day.date]
   const existing = existingDay?.items ?? []
   const imagesByTitle = new Map(existing.map((it) => [it.title, it.imageIds ?? []]))
+  const itemMapsByTitle = new Map(existing.map((it) => [it.title, it.mapsUrl]))
   const hotelNotNeeded = day.hotelNotNeeded ?? existingDay?.hotelNotNeeded
   trip.days[day.date] = {
     title: day.title ?? existingDay?.title ?? '',
@@ -211,15 +218,21 @@ function applyDayReplacement(trip, day) {
     // Existing items pass through untouched (not remapped — that would drop
     // legacy fields like timeLabel).
     items: day.items
-      ? day.items.map((item) => ({
-          timeStart: item.timeStart ?? null,
-          timeEnd: item.timeEnd ?? null,
-          timeLabel: null,
-          title: item.title,
-          description: item.description ?? '',
-          travel: item.travel === true,
-          imageIds: imagesByTitle.get(item.title) ?? [],
-        }))
+      ? day.items.map((item) => {
+          // Like imageIds, an item's navigation link survives a replacement
+          // that doesn't mention it (matched by title); "" clears it.
+          const itemMapsUrl = item.mapsUrl ?? itemMapsByTitle.get(item.title)
+          return {
+            timeStart: item.timeStart ?? null,
+            timeEnd: item.timeEnd ?? null,
+            timeLabel: null,
+            title: item.title,
+            description: item.description ?? '',
+            travel: item.travel === true,
+            imageIds: imagesByTitle.get(item.title) ?? [],
+            ...(itemMapsUrl ? { mapsUrl: itemMapsUrl } : {}),
+          }
+        })
       : existing,
     ...(hotelNotNeeded ? { hotelNotNeeded: true } : {}),
   }
@@ -260,6 +273,16 @@ export async function applyItineraryUpdate(input, { storage, tripId, username = 
         savedDays: [],
         removedDays: [],
         error: `invalid mapsUrl for ${day.date} — use a https://www.google.com/maps/dir/... link (or "" to clear)`,
+      }
+    }
+    for (const item of day.items ?? []) {
+      if (item.mapsUrl && !MAPS_URL_RE.test(item.mapsUrl)) {
+        return {
+          ok: false,
+          savedDays: [],
+          removedDays: [],
+          error: `invalid item mapsUrl for "${item.title}" on ${day.date} — use a https://www.google.com/maps/... link (or "" to clear)`,
+        }
       }
     }
   }
@@ -499,6 +522,7 @@ export function systemPrompt(trip) {
             title: it.title,
             description: it.description,
             ...(it.travel ? { travel: true } : {}),
+            ...(it.mapsUrl ? { mapsUrl: it.mapsUrl } : {}),
           })),
         },
       ])
@@ -537,6 +561,7 @@ Day maps links:
 - Use names Google Maps will resolve: full, unambiguous place names, adding the park/city when a name alone is generic (e.g. "Fairy Falls Trailhead, Yellowstone National Park"). URL-encode properly (spaces as +, & as %26).
 - Google Maps supports roughly 10 stops per link. If a day has more, keep the start, the end, and the most significant stops.
 - If the link differs in ANY way from the itinerary — a stop skipped or merged, a place you couldn't confidently locate, a name you had to guess, stops trimmed for the limit — say exactly what differs in your reply so the traveler can correct it.
+- Each item with a real location also gets its own item mapsUrl: a navigation link to just that place (https://www.google.com/maps/dir/?api=1&destination=Place+Name), using the SAME resolved place name as the day link's waypoint so the two always agree. The same accuracy rules apply. Omit it for items without a specific place; an item's existing link is kept when you resend the item without one.
 
 Hotel stays:
 - Record a hotel stay whenever the user mentions a hotel booking. hotelStays is a FULL replacement of the whole list — when adding or editing one stay, include every existing stay that should remain.

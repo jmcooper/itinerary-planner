@@ -578,6 +578,36 @@ label {
   border-top: 1px solid var(--line);
 }
 
+/* Per-item navigation link: the row line is a button, so the pin floats
+   beside the caret; the row reserves space so long titles don't run under it. */
+.itin-row {
+  position: relative;
+}
+
+.itin-map-link {
+  position: absolute;
+  top: 0.7rem; /* aligned to the row line's first text line, not the li center */
+  right: 0.75rem;
+  display: inline-flex;
+  padding: 0.3rem;
+  color: var(--ink-faint);
+  z-index: 1;
+}
+
+.itin-row.travel .itin-map-link {
+  top: 0.15rem;
+}
+
+.itin-map-link:hover {
+  color: var(--primary);
+}
+
+/* Reserve the right edge for the pin so the caret (inside the button) and
+   long titles stay clear of it — consistently caret first, pin outermost. */
+.itin-row.has-map .itin-row-line {
+  padding-right: 2.5rem;
+}
+
 .itin-row-line {
   width: 100%;
   display: grid;

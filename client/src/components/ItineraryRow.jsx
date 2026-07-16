@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { formatTimeBlock, formatDuration, parseTimeInput } from '../lib/time.js'
 import Markdown from './Markdown.jsx'
 import ItemImages from './ItemImages.jsx'
+import { MapPinIcon } from './icons.jsx'
 
 export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }) {
   const [expanded, setExpanded] = useState(false)
@@ -9,7 +10,23 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }
   const travelDuration = item.travel ? formatDuration(item) : ''
 
   return (
-    <li className={`itin-row${item.travel ? ' travel' : ''}${expanded ? ' expanded' : ''}`}>
+    <li
+      className={`itin-row${item.travel ? ' travel' : ''}${expanded ? ' expanded' : ''}${item.mapsUrl ? ' has-map' : ''}`}
+    >
+      {/* The row line is a button, so the navigation link sits beside it
+          (absolutely positioned next to the caret) rather than inside. */}
+      {item.mapsUrl && (
+        <a
+          className="itin-map-link"
+          href={item.mapsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Navigate to ${item.title}`}
+          aria-label={`Navigate to ${item.title}`}
+        >
+          <MapPinIcon size={15} />
+        </a>
+      )}
       <button
         type="button"
         className="itin-row-line"

@@ -231,6 +231,68 @@ test('applyItineraryUpdate with omitted items keeps them untouched, [] clears', 
   assert.deepEqual((await storage.readTrip('yellowstone')).days['2026-07-01'].items, [])
 })
 
+test('item mapsUrl: stored, carried forward by title, cleared with "", validated', async () => {
+  const nav = 'https://www.google.com/maps/dir/?api=1&destination=Fountain+Paint+Pot'
+  await applyItineraryUpdate(
+    {
+      days: [
+        {
+          date: '2026-07-01',
+          items: [{ title: 'Fountain Paint Pot', mapsUrl: nav }, { title: 'Picnic lunch' }],
+        },
+      ],
+    },
+    { storage, tripId: 'yellowstone' }
+  )
+  let items = (await storage.readTrip('yellowstone')).days['2026-07-01'].items
+  assert.equal(items[0].mapsUrl, nav)
+  assert.ok(!('mapsUrl' in items[1]))
+
+  // Resending the item without the link keeps it (matched by title)...
+  await applyItineraryUpdate(
+    { days: [{ date: '2026-07-01', items: [{ title: 'Fountain Paint Pot' }] }] },
+    { storage, tripId: 'yellowstone' }
+  )
+  items = (await storage.readTrip('yellowstone')).days['2026-07-01'].items
+  assert.equal(items[0].mapsUrl, nav)
+
+  // ...and "" clears it.
+  await applyItineraryUpdate(
+    { days: [{ date: '2026-07-01', items: [{ title: 'Fountain Paint Pot', mapsUrl: '' }] }] },
+    { storage, tripId: 'yellowstone' }
+  )
+  items = (await storage.readTrip('yellowstone')).days['2026-07-01'].items
+  assert.ok(!('mapsUrl' in items[0]))
+
+  // Non-Google links are rejected softly.
+  const bad = await applyItineraryUpdate(
+    { days: [{ date: '2026-07-01', items: [{ title: 'X', mapsUrl: 'https://evil.example/x' }] }] },
+    { storage, tripId: 'yellowstone' }
+  )
+  assert.equal(bad.ok, false)
+  assert.match(bad.error, /item mapsUrl/)
+})
+
+test('systemPrompt embeds item navigation links and the item-link rule', () => {
+  const trip = {
+    name: 'X',
+    summary: '',
+    days: {
+      '2026-07-01': {
+        title: '',
+        mapsUrl: '',
+        items: [
+          { timeStart: null, timeEnd: null, title: 'Fountain Paint Pot', description: '', mapsUrl: 'https://www.google.com/maps/dir/?api=1&destination=Fountain+Paint+Pot' },
+        ],
+      },
+    },
+  }
+  const prompt = systemPrompt(trip)
+  assert.match(prompt, /destination=Fountain\+Paint\+Pot/)
+  assert.match(prompt, /its own item mapsUrl/)
+  assert.match(prompt, /SAME resolved place name/)
+})
+
 test('applyItineraryUpdate prefers an agent-built mapsUrl over waypoints', async () => {
   const url = 'https://www.google.com/maps/dir/Fountain+Paint+Pot/Midway+Geyser+Basin/Old+Faithful'
   const result = await applyItineraryUpdate(
