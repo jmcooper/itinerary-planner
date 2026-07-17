@@ -735,7 +735,16 @@ export function createAiAgent(env = process.env) {
   return {
     enabled: true,
     listModels,
-    async respond({ model, trip, messages, storage, emit, username = null }) {
+    async respond({
+      model,
+      trip,
+      messages,
+      storage,
+      emit,
+      username = null,
+      onActivity = null,
+      abortSignal = undefined,
+    }) {
       // Sanitize on the way in too, so histories saved before sanitization
       // (or by other models) replay cleanly; compact old tool payloads —
       // the current trip state in the system prompt supersedes them.
@@ -747,9 +756,13 @@ export function createAiAgent(env = process.env) {
         messages: replayed,
         tools: [updateItinerary],
         maxTurns: 24,
+        abortSignal,
         context: { storage, tripId: trip.id, emit, username },
       })
       for await (const chunk of stream) {
+        // Every chunk counts as liveness — tool-call chunks stream large JSON
+        // arguments without any text, and must not look like a stall.
+        onActivity?.()
         if (chunk.text) emit('text', { text: chunk.text })
       }
       const final = await response

@@ -23,6 +23,9 @@ export function createApp(
     // Hard ceiling on one chat generation; a hung provider call must not lock
     // the trip's chat forever.
     chatTimeoutMs = Number(process.env.AI_CHAT_TIMEOUT_MS ?? 5 * 60_000),
+    // Max silence between model stream chunks before the turn is declared
+    // stalled (network drop to the provider) and the chat lock is freed.
+    chatIdleMs = Number(process.env.AI_CHAT_IDLE_MS ?? 60_000),
   } = {}
 ) {
   const app = express()
@@ -656,6 +659,8 @@ export function createApp(
       }
 
       let timer
+      let watchdog
+      const aborter = new AbortController()
       try {
         const chat = await storage.readChat(trip.id)
         // Messages from previously failed turns stay in the file (the client
@@ -671,12 +676,41 @@ export function createApp(
             chatTimeoutMs
           )
         })
+        // A healthy generation streams chunks continuously; prolonged silence
+        // means the provider connection stalled. Fail fast so the chat lock
+        // frees, instead of holding "thinking…" until the total timeout. The
+        // same tick sends an SSE comment so proxies keep the stream open.
+        let lastActivity = Date.now()
+        const markActivity = () => {
+          lastActivity = Date.now()
+        }
+        const stalled = new Promise((_, reject) => {
+          watchdog = setInterval(() => {
+            res.write(': keepalive\n\n')
+            if (Date.now() - lastActivity > chatIdleMs)
+              reject(
+                new Error(
+                  'the assistant stopped responding (connection stalled) — please try again'
+                )
+              )
+          }, Math.min(15_000, Math.max(25, Math.floor(chatIdleMs / 2))))
+        })
         // The agent sees linked days as ordinary content (resolved), and the
         // tool write-through uses the username for target-trip permission.
         const resolvedTrip = await resolveTripDays(trip, { storage, username: req.username })
         const updated = await Promise.race([
-          agent.respond({ model, trip: resolvedTrip, messages, storage, emit, username: req.username }),
+          agent.respond({
+            model,
+            trip: resolvedTrip,
+            messages,
+            storage,
+            emit,
+            username: req.username,
+            onActivity: markActivity,
+            abortSignal: aborter.signal,
+          }),
           timeout,
+          stalled,
         ])
         // An AI-created trip keeps its provisional prompt-derived slug only
         // until the agent names it; then it's renamed once to a
@@ -711,7 +745,11 @@ export function createApp(
         }
         emit('error', { error: err.message ?? 'generation failed' })
       } finally {
+        // Stop the abandoned generation too — without this it keeps running
+        // in the background and can mutate the trip minutes later.
+        aborter.abort()
         clearTimeout(timer)
+        clearInterval(watchdog)
         activeChats.delete(trip.id)
         res.end()
       }

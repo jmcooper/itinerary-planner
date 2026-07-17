@@ -242,6 +242,58 @@ test('a hung generation times out, frees the lock, and reports an error', async 
   assert.equal(retry.status, 200)
 })
 
+test('a stalled stream frees the chat lock quickly and keeps the message', async () => {
+  const stallAgent = {
+    enabled: true,
+    listModels: async () => [{ id: 'fake/model', label: 'Fake Model' }],
+    async respond({ emit }) {
+      emit('text', { text: 'starting…' })
+      await new Promise(() => {}) // network stall: no further chunks, never settles
+    },
+  }
+  const stallApp = createApp(dataDir, { agent: stallAgent, chatIdleMs: 80 })
+  const gina = request.agent(stallApp)
+  await gina.post('/api/auth/register').send({ username: 'gina', password: 'correct horse' })
+  const id = (await gina.post('/api/trips').send({ name: 'Stall Trip' })).body.id
+
+  const res = await gina.post(`/api/trips/${id}/chat`).send({ message: 'hello?' })
+  assert.equal(res.status, 200)
+  assert.match(res.text, /event: error/)
+  assert.match(res.text, /stopped responding/)
+
+  // The lock is freed immediately (not after the 5-minute total timeout),
+  // the message is preserved, and a retry is accepted.
+  const status = await gina.get(`/api/trips/${id}/chat`)
+  assert.equal(status.body.pending, false)
+  assert.equal(status.body.messages[0].failed, true)
+  const retry = await gina.post(`/api/trips/${id}/chat`).send({ message: 'retry' })
+  assert.equal(retry.status, 200)
+})
+
+test('slow but active generations are not treated as stalled', async () => {
+  const slowActiveAgent = {
+    enabled: true,
+    listModels: async () => [{ id: 'fake/model', label: 'Fake Model' }],
+    async respond({ messages, emit, onActivity }) {
+      // Long silence between text events, but chunk-level liveness the whole
+      // time — the shape of a big tool-call argument stream.
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 40))
+        onActivity?.()
+      }
+      emit('text', { text: 'done thinking' })
+      return [...messages, { role: 'model', content: [{ text: 'done thinking' }] }]
+    },
+  }
+  const activeApp = createApp(dataDir, { agent: slowActiveAgent, chatIdleMs: 120 })
+  const hana = request.agent(activeApp)
+  await hana.post('/api/auth/register').send({ username: 'hana', password: 'correct horse' })
+  const id = (await hana.post('/api/trips').send({ name: 'Active Trip' })).body.id
+  const res = await hana.post(`/api/trips/${id}/chat`).send({ message: 'take your time' })
+  assert.match(res.text, /event: done/)
+  assert.doesNotMatch(res.text, /event: error/)
+})
+
 test('a failed turn keeps the user message (flagged) without replaying it to the model', async () => {
   const calls = []
   let shouldFail = true
