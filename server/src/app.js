@@ -10,6 +10,7 @@ import { normalizeFlightTrips } from './flights.js'
 import { canView, canEdit, isOwner } from './permissions.js'
 import { normalizeLinkedDay, validateLinkedDay, resolveTripDays, findLinkingTrips } from './links.js'
 import { agentSlugBasis } from './slug.js'
+import { isMapsPhotoLink, isPhotoHost, upgradePhotoSize, extractPhotoUrl } from './mapsphoto.js'
 
 // Slugs that would collide with app routes ("/trips/new") or API routes.
 const RESERVED_SLUGS = new Set(['new', 'ai'])
@@ -507,6 +508,71 @@ export function createApp(
         return res.status(400).json({ error: 'dataUri must be a base64 image data URI' })
       if (dataUri.length > MAX_DATA_URI_CHARS)
         return res.status(400).json({ error: 'image is too large (10MB max)' })
+      const images = await storage.readImages(trip.id)
+      const id = storage.newImageId()
+      images[id] = dataUri
+      await storage.writeImages(trip.id, images)
+      res.status(201).json({ id })
+    })
+  )
+
+  // Imports the photo behind a Google Maps share link (or a direct
+  // googleusercontent image URL) into the trip's image store. Fetches are
+  // restricted to Google hosts, and the resolved image is stored as the same
+  // kind of data URI a pasted image produces.
+  const BROWSER_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36'
+  app.post(
+    '/api/trips/:id/images/from-url',
+    wrap(async (req, res) => {
+      const trip = await loadViewableTrip(req, res)
+      if (!trip) return
+      if (!requireEditable(trip, req, res)) return
+      const url = typeof req.body?.url === 'string' ? req.body.url.trim() : ''
+      if (!isMapsPhotoLink(url))
+        return res
+          .status(400)
+          .json({ error: 'url must be a Google Maps link or googleusercontent image URL' })
+
+      let imageUrl = null
+      try {
+        if (isPhotoHost(url)) {
+          imageUrl = upgradePhotoSize(url)
+        } else {
+          const page = await fetch(url, {
+            redirect: 'follow',
+            headers: { 'user-agent': BROWSER_UA },
+            signal: AbortSignal.timeout(15_000),
+          })
+          // The redirect target's URL usually carries the photo; the page
+          // HTML is the fallback. Both only ever yield googleusercontent URLs.
+          imageUrl = extractPhotoUrl(page.url)
+          if (!imageUrl && (page.headers.get('content-type') ?? '').includes('text/html')) {
+            imageUrl = extractPhotoUrl(await page.text())
+          }
+        }
+      } catch {
+        imageUrl = null
+      }
+      if (!imageUrl)
+        return res.status(422).json({ error: "couldn't find a photo in that link" })
+
+      let dataUri
+      try {
+        const img = await fetch(imageUrl, {
+          headers: { 'user-agent': BROWSER_UA },
+          signal: AbortSignal.timeout(20_000),
+        })
+        const type = (img.headers.get('content-type') ?? '').split(';')[0]
+        if (!img.ok || !type.startsWith('image/')) throw new Error('not an image')
+        const buf = Buffer.from(await img.arrayBuffer())
+        dataUri = `data:${type};base64,${buf.toString('base64')}`
+      } catch {
+        return res.status(422).json({ error: "that link's photo could not be downloaded" })
+      }
+      if (dataUri.length > MAX_DATA_URI_CHARS)
+        return res.status(400).json({ error: 'image is too large (10MB max)' })
+
       const images = await storage.readImages(trip.id)
       const id = storage.newImageId()
       images[id] = dataUri

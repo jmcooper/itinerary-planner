@@ -72,6 +72,8 @@ export const api = {
   getImage: (tripId, imageId) => fetchJson(`/api/trips/${tripId}/images/${imageId}`),
   uploadImage: (tripId, dataUri) =>
     fetchJson(`/api/trips/${tripId}/images`, { method: 'POST', body: JSON.stringify({ dataUri }) }),
+  importImageFromUrl: (tripId, url) =>
+    fetchJson(`/api/trips/${tripId}/images/from-url`, { method: 'POST', body: JSON.stringify({ url }) }),
   deleteImage: (tripId, imageId) =>
     fetchJson(`/api/trips/${tripId}/images/${imageId}`, { method: 'DELETE' }),
 }

@@ -34,6 +34,13 @@ export default function ItemImages({ tripId, imageIds, canEdit, onChangeIds }) {
     setAdding(false)
   }
 
+  // A pasted Google Maps photo link imports the photo server-side.
+  async function addImageFromLink(url) {
+    const { id } = await api.importImageFromUrl(tripId, url)
+    await onChangeIds([...imageIds, id])
+    setAdding(false)
+  }
+
   async function deleteImage(id) {
     await api.deleteImage(tripId, id)
     await onChangeIds(imageIds.filter((x) => x !== id))
@@ -44,7 +51,7 @@ export default function ItemImages({ tripId, imageIds, canEdit, onChangeIds }) {
     return (
       <div className="itin-images">
         {adding ? (
-          <ImageDropzone onImage={addImage} onCancel={() => setAdding(false)} />
+          <ImageDropzone onImage={addImage} onLink={addImageFromLink} onCancel={() => setAdding(false)} />
         ) : (
           <button type="button" className="btn btn-ghost btn-small" onClick={() => setAdding(true)}>
             Add Image
@@ -76,6 +83,7 @@ export default function ItemImages({ tripId, imageIds, canEdit, onChangeIds }) {
           canEdit={canEdit}
           onClose={() => setCarouselOpen(false)}
           onAdd={addImage}
+          onAddLink={addImageFromLink}
           onDelete={deleteImage}
         />
       )}
@@ -83,7 +91,7 @@ export default function ItemImages({ tripId, imageIds, canEdit, onChangeIds }) {
   )
 }
 
-function ImageCarousel({ tripId, imageIds, canEdit, onClose, onAdd, onDelete }) {
+function ImageCarousel({ tripId, imageIds, canEdit, onClose, onAdd, onAddLink, onDelete }) {
   const [index, setIndex] = useState(0)
   const [cache, setCache] = useState({})
   // The last slide is the uploader, shown only to editors.
@@ -129,6 +137,11 @@ function ImageCarousel({ tripId, imageIds, canEdit, onClose, onAdd, onDelete }) 
     setIndex(imageIds.length) // the new image lands where the uploader was
   }
 
+  async function handleAddLink(url) {
+    await onAddLink(url)
+    setIndex(imageIds.length)
+  }
+
   return (
     <div
       className="carousel-overlay"
@@ -154,7 +167,7 @@ function ImageCarousel({ tripId, imageIds, canEdit, onClose, onAdd, onDelete }) 
         </button>
         <div className="carousel-slide">
           {isUploadSlide ? (
-            <ImageDropzone onImage={handleAdd} large />
+            <ImageDropzone onImage={handleAdd} onLink={handleAddLink} large />
           ) : cache[currentId] ? (
             <figure className="carousel-figure">
               <img src={cache[currentId]} alt={`Itinerary image ${current + 1}`} />
@@ -191,11 +204,24 @@ function ImageCarousel({ tripId, imageIds, canEdit, onClose, onAdd, onDelete }) 
   )
 }
 
-function ImageDropzone({ onImage, onCancel, large }) {
+const MAPS_LINK_RE =
+  /^https:\/\/(maps\.app\.goo\.gl|goo\.gl|(www\.|maps\.)?google\.[a-z.]+|lh\d+\.googleusercontent\.com)\//i
+
+function ImageDropzone({ onImage, onLink, onCancel, large }) {
   const inputRef = useRef(null)
   const [dragOver, setDragOver] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+
+  function handleLink(url) {
+    if (busy) return
+    setError('')
+    setBusy(true)
+    Promise.resolve(onLink(url)).catch((err) => {
+      setError(err.message)
+      setBusy(false)
+    })
+  }
 
   function handleFile(file) {
     if (busy || !file) return
@@ -219,7 +245,8 @@ function ImageDropzone({ onImage, onCancel, large }) {
     reader.readAsDataURL(file)
   }
 
-  // Paste works anywhere on the page while a dropzone is visible.
+  // Paste works anywhere on the page while a dropzone is visible — image
+  // data, or a Google Maps photo link to import server-side.
   useEffect(() => {
     function onPaste(e) {
       const item = Array.from(e.clipboardData?.items ?? []).find((i) =>
@@ -228,6 +255,12 @@ function ImageDropzone({ onImage, onCancel, large }) {
       if (item) {
         e.preventDefault()
         handleFile(item.getAsFile())
+        return
+      }
+      const text = e.clipboardData?.getData('text')?.trim() ?? ''
+      if (onLink && MAPS_LINK_RE.test(text)) {
+        e.preventDefault()
+        handleLink(text)
       }
     }
     document.addEventListener('paste', onPaste)
@@ -266,7 +299,9 @@ function ImageDropzone({ onImage, onCancel, large }) {
         }}
       />
       <p className="dropzone-text">
-        {busy ? 'Uploading…' : 'Click to browse, drag & drop, or paste an image'}
+        {busy
+          ? 'Uploading…'
+          : 'Click to browse, drag & drop, or paste an image or Google Maps photo link'}
       </p>
       {error && <p className="error">{error}</p>}
       {onCancel && !busy && (

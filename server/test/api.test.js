@@ -721,3 +721,17 @@ test('trip ids are url-safe slugs derived from the name', async () => {
   const created = await alice.post('/api/trips').send({ name: 'Grand Cañón & Back!' })
   assert.match(created.body.id, /^[a-z0-9-]+$/)
 })
+
+test('POST images/from-url validates the link and permissions', async () => {
+  const created = await alice.post('/api/trips').send({ name: 'Photo Import Trip' })
+  const id = created.body.id
+  for (const url of ['https://evil.example/img.jpg', 'http://maps.app.goo.gl/x', 'nope', '']) {
+    const res = await alice.post(`/api/trips/${id}/images/from-url`).send({ url })
+    assert.equal(res.status, 400, `expected 400 for ${JSON.stringify(url)}`)
+  }
+  // Viewers can't import
+  const anon = await request(app)
+    .post(`/api/trips/${id}/images/from-url`)
+    .send({ url: 'https://maps.app.goo.gl/x' })
+  assert.equal(anon.status, 404) // private trip is invisible to anonymous users
+})
