@@ -47,18 +47,19 @@ export default function ItineraryRow({ tripId, item, canEdit, onSave, onDelete }
           <span className="itin-travel-label">
             {item.title}
             {travelDuration && <span className="itin-travel-duration"> · {travelDuration}</span>}
-            {mapPin}
           </span>
         ) : (
           <>
             <span className="itin-time">{formatTimeBlock(item)}</span>
-            <span className="itin-plan">
-              {item.title}
-              {mapPin}
-            </span>
+            <span className="itin-plan">{item.title}</span>
           </>
         )}
-        <span className="itin-caret" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        {/* Pin and caret travel together so the pin has one fixed, reliable
+            spot: immediately left of the expand arrow. */}
+        <span className="itin-row-end">
+          {mapPin}
+          <span className="itin-caret" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        </span>
       </button>
       {expanded && (
         <div className="itin-details">

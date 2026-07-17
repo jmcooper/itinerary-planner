@@ -578,12 +578,16 @@ label {
   border-top: 1px solid var(--line);
 }
 
-/* Per-item navigation pin: inline right after the item text, before the
-   caret (which stays the right-most element). */
+/* Pin + caret cluster at the row's end: the pin always sits immediately
+   left of the expand arrow, a fixed spot for every item. */
+.itin-row-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .itin-map-link {
   display: inline-flex;
-  vertical-align: -2px;
-  margin-left: 0.4rem;
   padding: 0.1rem;
   color: var(--ink-faint);
   cursor: pointer;
